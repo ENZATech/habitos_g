@@ -67,15 +67,23 @@ data class BirthdayPerson(
         date.monthValue == monthValue && date.dayOfMonth == dayOfMonth
 
     fun daysUntilNext(today: LocalDate = LocalDate.now()): Long {
-        var next = LocalDate.of(today.year, monthValue, dayOfMonth.coerceAtMost(28IfFeb(today.year, monthValue, dayOfMonth)))
+        var next = LocalDate.of(
+            today.year,
+            monthValue,
+            dayOfMonth.coerceAtMost(safeDayOfMonth(today.year, monthValue, dayOfMonth))
+        )
         if (next.isBefore(today)) {
             val nextYear = today.year + 1
-            next = LocalDate.of(nextYear, monthValue, dayOfMonth.coerceAtMost(28IfFeb(nextYear, monthValue, dayOfMonth)))
+            next = LocalDate.of(
+                nextYear,
+                monthValue,
+                dayOfMonth.coerceAtMost(safeDayOfMonth(nextYear, monthValue, dayOfMonth))
+            )
         }
         return ChronoUnit.DAYS.between(today, next)
     }
 
-    private fun 28IfFeb(year: Int, month: Int, day: Int): Int {
+    private fun safeDayOfMonth(year: Int, month: Int, day: Int): Int {
         return if (month == 2 && day == 29 && !java.time.Year.isLeap(year.toLong())) 28 else day
     }
 }

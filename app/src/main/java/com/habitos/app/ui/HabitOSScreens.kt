@@ -2082,7 +2082,7 @@ fun ClearDataVaultDialog(
                     singleLine = true
                 )
 
-                Divider(color = ObsidianBorder)
+                HorizontalDivider(color = ObsidianBorder)
 
                 Text("Customize 4-Digit PIN (requires current PIN above):", color = TextMuted, fontSize = 11.sp)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
