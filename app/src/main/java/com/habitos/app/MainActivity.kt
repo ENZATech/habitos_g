@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val initial = HabitOSStorage.load(this)
+        NotificationScheduler.ensureChannel(this)
         NotificationScheduler.scheduleAllAlarms(this, initial)
 
         setContent {

@@ -8,6 +8,7 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.UUID
+import kotlin.random.Random
 
 data class SubTask(
     val id: String = UUID.randomUUID().toString(),
@@ -24,6 +25,7 @@ data class TaskItem(
     val myDayDate: String = "", // YYYY-MM-DD when added to My Day
     val dueDate: String? = null, // YYYY-MM-DD
     val listId: String? = null,
+    val cue: String = "", // e.g. "30m"
     val steps: List<SubTask> = emptyList(),
     val notes: String = "",
     val createdAt: Long = System.currentTimeMillis()
@@ -32,6 +34,8 @@ data class TaskItem(
 data class HabitItem(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
+    val listId: String? = null,
+    val cue: String = "",
     val completedDates: Set<String> = emptySet(), // Set of YYYY-MM-DD
     val recordStreak: Int = 0,
     val createdAt: Long = System.currentTimeMillis()
@@ -94,6 +98,15 @@ data class CustomTaskList(
     val colorHex: Long = 0xFF10B981
 )
 
+data class UserProfile(
+    val isOnboarded: Boolean = false,
+    val name: String = "",
+    val dob: String = "",
+    val gender: String = "",
+    val avatarSeed: Int = Random.nextInt(0, 6),
+    val permissionsPromptShown: Boolean = false
+)
+
 data class AppSettings(
     val vaultPin: String = "1234",
     val eodHour: Int = 21,
@@ -105,13 +118,19 @@ data class PersistedState(
     val tasks: List<TaskItem> = emptyList(),
     val habits: List<HabitItem> = emptyList(),
     val birthdays: List<BirthdayPerson> = emptyList(),
-    val customLists: List<CustomTaskList> = emptyList(),
+    val customLists: List<CustomTaskList> = listOf(
+        CustomTaskList(id = "default_routine", name = "Daily Routine & Mindfulness", colorHex = 0xFF10B981),
+        CustomTaskList(id = "default_code", name = "C Language & Web Dev", colorHex = 0xFF3B82F6),
+        CustomTaskList(id = "default_fitness", name = "Fitness & Health", colorHex = 0xFFF43F5E),
+        CustomTaskList(id = "default_goals", name = "Personal & Goals", colorHex = 0xFFA855F7)
+    ),
+    val userProfile: UserProfile = UserProfile(),
     val settings: AppSettings = AppSettings()
 )
 
 object HabitOSStorage {
     private const val PREF_NAME = "habitos_native_vault"
-    private const val KEY_STATE = "persisted_state_v1"
+    private const val KEY_STATE = "persisted_state_v2"
     private val gson = Gson()
 
     fun load(context: Context): PersistedState {
@@ -119,7 +138,8 @@ object HabitOSStorage {
         val raw = prefs.getString(KEY_STATE, null) ?: return PersistedState()
         return try {
             val type = object : TypeToken<PersistedState>() {}.type
-            gson.fromJson(raw, type) ?: PersistedState()
+            val loaded: PersistedState? = gson.fromJson(raw, type)
+            loaded ?: PersistedState()
         } catch (e: Exception) {
             PersistedState()
         }
@@ -130,8 +150,15 @@ object HabitOSStorage {
         prefs.edit().putString(KEY_STATE, gson.toJson(state)).apply()
     }
 
-    fun clearAllResettingKeepPin(context: Context, currentPin: String): PersistedState {
-        val clean = PersistedState(settings = AppSettings(vaultPin = currentPin))
+    fun clearAllResettingKeepPinAndProfile(
+        context: Context,
+        currentPin: String,
+        currentProfile: UserProfile
+    ): PersistedState {
+        val clean = PersistedState(
+            userProfile = currentProfile,
+            settings = AppSettings(vaultPin = currentPin)
+        )
         save(context, clean)
         return clean
     }
@@ -147,5 +174,21 @@ object WeekHelper {
         if (habits.isEmpty()) return false
         val key = date.toString()
         return habits.all { it.completedDates.contains(key) }
+    }
+
+    // Consistency Streak: Consecutive days hitting >= 65% of daily habits
+    fun consistencyStreakDays(habits: List<HabitItem>, today: LocalDate = LocalDate.now()): Int {
+        if (habits.isEmpty()) return 0
+        var streak = 0
+        fun hit65(d: LocalDate): Boolean {
+            val done = habits.count { it.completedDates.contains(d.toString()) }
+            return (done.toDouble() / habits.size.toDouble()) >= 0.65
+        }
+        var cursor = if (hit65(today)) today else today.minusDays(1)
+        while (hit65(cursor)) {
+            streak++
+            cursor = cursor.minusDays(1)
+        }
+        return streak
     }
 }

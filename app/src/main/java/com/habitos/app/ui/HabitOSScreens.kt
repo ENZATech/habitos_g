@@ -1,22 +1,28 @@
 package com.habitos.app.ui
 
+import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -28,9 +34,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle as ComposeTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -39,6 +48,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationCompat
 import com.habitos.app.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -49,6 +59,7 @@ import java.time.Month
 import java.time.ZoneId
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlin.random.Random
 
 enum class HabitOSTab(val label: String) {
     MY_DAY("My Day"),
@@ -58,6 +69,16 @@ enum class HabitOSTab(val label: String) {
     LISTS("Lists")
 }
 
+enum class MainSection {
+    MY_DAY,
+    HABITS,
+    BIRTHDAYS,
+    PLANNED,
+    IMPORTANT,
+    ALL_ITEMS,
+    CUSTOM_LIST
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HabitOSRootScreen() {
@@ -65,15 +86,19 @@ fun HabitOSRootScreen() {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     var appState by remember { mutableStateOf(HabitOSStorage.load(context)) }
-    var currentTab by remember { mutableStateOf(HabitOSTab.MY_DAY) }
+    var activeSection by remember { mutableStateOf(MainSection.MY_DAY) }
+    var activeCustomListId by remember { mutableStateOf<String?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
 
-    // Active Task Detail Sheet ID
+    // Sheets & Modals
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
     var showSuggestionsSheet by remember { mutableStateOf(false) }
     var showVaultDialog by remember { mutableStateOf(false) }
     var showEodTimeDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
 
     fun persist(next: PersistedState) {
         appState = next
@@ -124,261 +149,35 @@ fun HabitOSRootScreen() {
         }
     }
 
-    Scaffold(
-        containerColor = ObsidianBg,
-        snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState) { data ->
-                Snackbar(
-                    snackbarData = data,
-                    containerColor = ObsidianCard,
-                    contentColor = TextPrimary,
-                    actionColor = EmeraldPrimary,
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
-        },
-        topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ObsidianBg,
-                    titleContentColor = TextPrimary
-                ),
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(EmeraldPrimary, TealSecondary)
-                                    )
-                                )
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "habitOS",
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 20.sp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Surface(
-                            color = ObsidianCard,
-                            shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(1.dp, ObsidianBorder)
-                        ) {
-                            Text(
-                                text = "NATIVE",
-                                color = EmeraldPrimary,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    // EOD Notification Clock button
-                    TextButton(onClick = { showEodTimeDialog = true }) {
-                        Icon(
-                            Icons.Default.NotificationsActive,
-                            contentDescription = "EOD Alert Time",
-                            tint = AmberStreak,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = String.format(
-                                Locale.getDefault(),
-                                "%02d:%02d",
-                                appState.settings.eodHour,
-                                appState.settings.eodMinute
-                            ),
-                            color = TextPrimary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    // Security-Protected Clear Data Vault Button
-                    IconButton(onClick = { showVaultDialog = true }) {
-                        Icon(
-                            Icons.Default.Shield,
-                            contentDescription = "Security Data Vault",
-                            tint = RoseAlert
-                        )
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = ObsidianNav,
-                tonalElevation = 0.dp,
-                modifier = Modifier.border(BorderStroke(1.dp, ObsidianBorder))
+    // LEFT SLIDING SIDEBAR DRAWER (Matches habitos_v2 + Profile Footer at bottom)
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = ObsidianNav,
+                drawerContentColor = TextPrimary,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(310.dp)
             ) {
-                HabitOSTab.entries.forEach { tab ->
-                    val selected = currentTab == tab
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = { currentTab = tab },
-                        icon = {
-                            val icon = when (tab) {
-                                HabitOSTab.MY_DAY -> Icons.Default.WbSunny
-                                HabitOSTab.HABITS -> Icons.Default.GridOn
-                                HabitOSTab.BIRTHDAYS -> Icons.Default.Cake
-                                HabitOSTab.PLANNED -> Icons.Default.CalendarMonth
-                                HabitOSTab.LISTS -> Icons.Default.FormatListBulleted
-                            }
-                            Icon(icon, contentDescription = tab.label)
-                        },
-                        label = {
-                            Text(
-                                text = tab.label,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = EmeraldPrimary,
-                            selectedTextColor = EmeraldPrimary,
-                            indicatorColor = EmeraldPrimary.copy(alpha = 0.15f),
-                            unselectedIconColor = TextMuted,
-                            unselectedTextColor = TextMuted
-                        )
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(ObsidianBg)
-        ) {
-            when (currentTab) {
-                HabitOSTab.MY_DAY -> MyDayScreen(
+                HabitOSSidebarDrawerContent(
                     state = appState,
-                    onOpenSuggestions = { showSuggestionsSheet = true },
-                    onAddTask = { title, important ->
-                        val todayStr = LocalDate.now().toString()
-                        val newTask = TaskItem(
-                            title = title,
-                            isImportant = important,
-                            isMyDay = true,
-                            myDayDate = todayStr
-                        )
-                        persist(appState.copy(tasks = listOf(newTask) + appState.tasks))
+                    activeSection = activeSection,
+                    activeCustomListId = activeCustomListId,
+                    searchQuery = searchQuery,
+                    onSearchChange = { searchQuery = it },
+                    onSelectSection = { sec, listId ->
+                        activeSection = sec
+                        activeCustomListId = listId
+                        scope.launch { drawerState.close() }
                     },
-                    onToggleTask = { task ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        persist(
-                            appState.copy(
-                                tasks = appState.tasks.map {
-                                    if (it.id == task.id) it.copy(isCompleted = !it.isCompleted) else it
-                                }
-                            )
-                        )
+                    onCloseDrawer = { scope.launch { drawerState.close() } },
+                    onOpenEodConfig = { showEodTimeDialog = true },
+                    onAddCustomList = { name, colorHex ->
+                        val created = CustomTaskList(name = name, colorHex = colorHex)
+                        persist(appState.copy(customLists = appState.customLists + created))
                     },
-                    onToggleImportant = { task ->
-                        persist(
-                            appState.copy(
-                                tasks = appState.tasks.map {
-                                    if (it.id == task.id) it.copy(isImportant = !it.isImportant) else it
-                                }
-                            )
-                        )
-                    },
-                    onClickTask = { selectedTaskId = it.id },
-                    onDeleteTask = ::deleteTaskWithUndo
-                )
-
-                HabitOSTab.HABITS -> HabitGridScreen(
-                    state = appState,
-                    onAddHabit = { name ->
-                        val newHabit = HabitItem(name = name)
-                        persist(appState.copy(habits = appState.habits + newHabit))
-                    },
-                    onToggleHabitDate = { habit, dateStr ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        persist(
-                            appState.copy(
-                                habits = appState.habits.map {
-                                    if (it.id == habit.id) it.updatedWithToggle(dateStr) else it
-                                }
-                            )
-                        )
-                    },
-                    onDeleteHabit = ::deleteHabitWithUndo
-                )
-
-                HabitOSTab.BIRTHDAYS -> BirthdaysScreen(
-                    state = appState,
-                    onAddBirthday = { name, day, month, phone ->
-                        val person = BirthdayPerson(
-                            name = name,
-                            dayOfMonth = day,
-                            monthValue = month,
-                            phone = phone
-                        )
-                        persist(appState.copy(birthdays = appState.birthdays + person))
-                    },
-                    onMarkWished = { person ->
-                        val yr = LocalDate.now().year
-                        persist(
-                            appState.copy(
-                                birthdays = appState.birthdays.map {
-                                    if (it.id == person.id) it.copy(wishedYear = yr) else it
-                                }
-                            )
-                        )
-                    },
-                    onDeleteBirthday = ::deleteBirthdayWithUndo
-                )
-
-                HabitOSTab.PLANNED -> PlannedScreen(
-                    state = appState,
-                    onAddPlannedTask = { title, dueDateStr ->
-                        val isToday = dueDateStr == LocalDate.now().toString()
-                        val newTask = TaskItem(
-                            title = title,
-                            dueDate = dueDateStr,
-                            isMyDay = isToday,
-                            myDayDate = if (isToday) dueDateStr else ""
-                        )
-                        persist(appState.copy(tasks = listOf(newTask) + appState.tasks))
-                    },
-                    onToggleTask = { task ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        persist(
-                            appState.copy(
-                                tasks = appState.tasks.map {
-                                    if (it.id == task.id) it.copy(isCompleted = !it.isCompleted) else it
-                                }
-                            )
-                        )
-                    },
-                    onToggleImportant = { task ->
-                        persist(
-                            appState.copy(
-                                tasks = appState.tasks.map {
-                                    if (it.id == task.id) it.copy(isImportant = !it.isImportant) else it
-                                }
-                            )
-                        )
-                    },
-                    onClickTask = { selectedTaskId = it.id },
-                    onDeleteTask = ::deleteTaskWithUndo
-                )
-
-                HabitOSTab.LISTS -> CustomListsScreen(
-                    state = appState,
-                    onAddList = { name, colorHex ->
-                        val newList = CustomTaskList(name = name, colorHex = colorHex)
-                        persist(appState.copy(customLists = appState.customLists + newList))
-                    },
-                    onDeleteList = { list ->
+                    onDeleteCustomList = { list ->
                         persist(
                             appState.copy(
                                 customLists = appState.customLists.filterNot { it.id == list.id },
@@ -388,37 +187,379 @@ fun HabitOSRootScreen() {
                             )
                         )
                     },
-                    onAddTaskToList = { title, listId ->
-                        val newTask = TaskItem(title = title, listId = listId)
-                        persist(appState.copy(tasks = listOf(newTask) + appState.tasks))
-                    },
-                    onToggleTask = { task ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        persist(
-                            appState.copy(
-                                tasks = appState.tasks.map {
-                                    if (it.id == task.id) it.copy(isCompleted = !it.isCompleted) else it
-                                }
-                            )
-                        )
-                    },
-                    onToggleImportant = { task ->
-                        persist(
-                            appState.copy(
-                                tasks = appState.tasks.map {
-                                    if (it.id == task.id) it.copy(isImportant = !it.isImportant) else it
-                                }
-                            )
-                        )
-                    },
-                    onClickTask = { selectedTaskId = it.id },
-                    onDeleteTask = ::deleteTaskWithUndo
+                    onOpenProfileEdit = { showEditProfileDialog = true }
                 )
+            }
+        }
+    ) {
+        Scaffold(
+            containerColor = ObsidianBg,
+            snackbarHost = {
+                SnackbarHost(hostState = snackbarHostState) { data ->
+                    Snackbar(
+                        snackbarData = data,
+                        containerColor = ObsidianCard,
+                        contentColor = TextPrimary,
+                        actionColor = EmeraldPrimary,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+            },
+            topBar = {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = ObsidianBg,
+                        titleContentColor = TextPrimary
+                    ),
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Open Sidebar", tint = TextPrimary)
+                        }
+                    },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "habit",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 20.sp,
+                                color = TextPrimary
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Surface(
+                                color = EmeraldPrimary.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, EmeraldPrimary)
+                            ) {
+                                Text(
+                                    text = "OS",
+                                    color = EmeraldPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        TextButton(onClick = { showEodTimeDialog = true }) {
+                            Icon(
+                                Icons.Default.NotificationsActive,
+                                contentDescription = "EOD Alert Time",
+                                tint = AmberStreak,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = String.format(
+                                    Locale.getDefault(),
+                                    "%02d:%02d",
+                                    appState.settings.eodHour,
+                                    appState.settings.eodMinute
+                                ),
+                                color = TextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        IconButton(onClick = { showVaultDialog = true }) {
+                            Icon(
+                                Icons.Default.Shield,
+                                contentDescription = "Security Data Vault",
+                                tint = RoseAlert
+                            )
+                        }
+                    }
+                )
+            },
+            bottomBar = {
+                NavigationBar(
+                    containerColor = ObsidianNav,
+                    tonalElevation = 0.dp,
+                    modifier = Modifier.border(BorderStroke(1.dp, ObsidianBorder))
+                ) {
+                    HabitOSTab.entries.forEach { tab ->
+                        val selected = when (tab) {
+                            HabitOSTab.MY_DAY -> activeSection == MainSection.MY_DAY
+                            HabitOSTab.HABITS -> activeSection == MainSection.HABITS
+                            HabitOSTab.BIRTHDAYS -> activeSection == MainSection.BIRTHDAYS
+                            HabitOSTab.PLANNED -> activeSection == MainSection.PLANNED
+                            HabitOSTab.LISTS -> drawerState.isOpen ||
+                                activeSection in listOf(
+                                    MainSection.IMPORTANT,
+                                    MainSection.ALL_ITEMS,
+                                    MainSection.CUSTOM_LIST
+                                )
+                        }
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = {
+                                when (tab) {
+                                    HabitOSTab.MY_DAY -> activeSection = MainSection.MY_DAY
+                                    HabitOSTab.HABITS -> activeSection = MainSection.HABITS
+                                    HabitOSTab.BIRTHDAYS -> activeSection = MainSection.BIRTHDAYS
+                                    HabitOSTab.PLANNED -> activeSection = MainSection.PLANNED
+                                    HabitOSTab.LISTS -> {
+                                        // Opens the left sidebar drawer just like habitos_v2!
+                                        scope.launch {
+                                            if (drawerState.isOpen) drawerState.close() else drawerState.open()
+                                        }
+                                    }
+                                }
+                            },
+                            icon = {
+                                val icon = when (tab) {
+                                    HabitOSTab.MY_DAY -> Icons.Default.WbSunny
+                                    HabitOSTab.HABITS -> Icons.Default.GridOn
+                                    HabitOSTab.BIRTHDAYS -> Icons.Default.Cake
+                                    HabitOSTab.PLANNED -> Icons.Default.CalendarMonth
+                                    HabitOSTab.LISTS -> Icons.Default.FormatListBulleted
+                                }
+                                Icon(icon, contentDescription = tab.label)
+                            },
+                            label = {
+                                Text(
+                                    text = tab.label,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = EmeraldPrimary,
+                                selectedTextColor = EmeraldPrimary,
+                                indicatorColor = EmeraldPrimary.copy(alpha = 0.15f),
+                                unselectedIconColor = TextMuted,
+                                unselectedTextColor = TextMuted
+                            )
+                        )
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .background(ObsidianBg)
+            ) {
+                when (activeSection) {
+                    MainSection.MY_DAY -> MyDayWebDashboardScreen(
+                        state = appState,
+                        searchQuery = searchQuery,
+                        onOpenSuggestions = { showSuggestionsSheet = true },
+                        onNavigateToHabits = { activeSection = MainSection.HABITS },
+                        onAddUnifiedItem = { isHabit, title, listId, dueDate, cue, isMyDay, isImportant ->
+                            if (isHabit) {
+                                val newHabit = HabitItem(
+                                    name = title,
+                                    listId = listId,
+                                    cue = cue
+                                )
+                                persist(appState.copy(habits = appState.habits + newHabit))
+                            } else {
+                                val todayStr = LocalDate.now().toString()
+                                val newTask = TaskItem(
+                                    title = title,
+                                    isImportant = isImportant,
+                                    isMyDay = isMyDay,
+                                    myDayDate = if (isMyDay) todayStr else "",
+                                    dueDate = dueDate,
+                                    listId = listId,
+                                    cue = cue
+                                )
+                                persist(appState.copy(tasks = listOf(newTask) + appState.tasks))
+                            }
+                        },
+                        onToggleTask = { task ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            persist(
+                                appState.copy(
+                                    tasks = appState.tasks.map {
+                                        if (it.id == task.id) it.copy(isCompleted = !it.isCompleted) else it
+                                    }
+                                )
+                            )
+                        },
+                        onToggleImportant = { task ->
+                            persist(
+                                appState.copy(
+                                    tasks = appState.tasks.map {
+                                        if (it.id == task.id) it.copy(isImportant = !it.isImportant) else it
+                                    }
+                                )
+                            )
+                        },
+                        onToggleHabitToday = { habit ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            val todayStr = LocalDate.now().toString()
+                            persist(
+                                appState.copy(
+                                    habits = appState.habits.map {
+                                        if (it.id == habit.id) it.updatedWithToggle(todayStr) else it
+                                    }
+                                )
+                            )
+                        },
+                        onClickTask = { selectedTaskId = it.id },
+                        onDeleteTask = ::deleteTaskWithUndo,
+                        onDeleteHabit = ::deleteHabitWithUndo
+                    )
+
+                    MainSection.HABITS -> HabitGridScreen(
+                        state = appState,
+                        onAddHabit = { name ->
+                            val newHabit = HabitItem(name = name)
+                            persist(appState.copy(habits = appState.habits + newHabit))
+                        },
+                        onToggleHabitDate = { habit, dateStr ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            persist(
+                                appState.copy(
+                                    habits = appState.habits.map {
+                                        if (it.id == habit.id) it.updatedWithToggle(dateStr) else it
+                                    }
+                                )
+                            )
+                        },
+                        onDeleteHabit = ::deleteHabitWithUndo
+                    )
+
+                    MainSection.BIRTHDAYS -> BirthdaysScreen(
+                        state = appState,
+                        onAddBirthday = { name, day, month, phone ->
+                            val person = BirthdayPerson(
+                                name = name,
+                                dayOfMonth = day,
+                                monthValue = month,
+                                phone = phone
+                            )
+                            persist(appState.copy(birthdays = appState.birthdays + person))
+                        },
+                        onMarkWished = { person ->
+                            val yr = LocalDate.now().year
+                            persist(
+                                appState.copy(
+                                    birthdays = appState.birthdays.map {
+                                        if (it.id == person.id) it.copy(wishedYear = yr) else it
+                                    }
+                                )
+                            )
+                        },
+                        onDeleteBirthday = ::deleteBirthdayWithUndo
+                    )
+
+                    MainSection.PLANNED -> PlannedScreen(
+                        state = appState,
+                        onAddPlannedTask = { title, dueDateStr ->
+                            val isToday = dueDateStr == LocalDate.now().toString()
+                            val newTask = TaskItem(
+                                title = title,
+                                dueDate = dueDateStr,
+                                isMyDay = isToday,
+                                myDayDate = if (isToday) dueDateStr else ""
+                            )
+                            persist(appState.copy(tasks = listOf(newTask) + appState.tasks))
+                        },
+                        onToggleTask = { task ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            persist(
+                                appState.copy(
+                                    tasks = appState.tasks.map {
+                                        if (it.id == task.id) it.copy(isCompleted = !it.isCompleted) else it
+                                    }
+                                )
+                            )
+                        },
+                        onToggleImportant = { task ->
+                            persist(
+                                appState.copy(
+                                    tasks = appState.tasks.map {
+                                        if (it.id == task.id) it.copy(isImportant = !it.isImportant) else it
+                                    }
+                                )
+                            )
+                        },
+                        onClickTask = { selectedTaskId = it.id },
+                        onDeleteTask = ::deleteTaskWithUndo
+                    )
+
+                    MainSection.IMPORTANT,
+                    MainSection.ALL_ITEMS,
+                    MainSection.CUSTOM_LIST -> FilteredListSectionScreen(
+                        state = appState,
+                        section = activeSection,
+                        customListId = activeCustomListId,
+                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                        onAddTask = { title, listId, important ->
+                            val newTask = TaskItem(
+                                title = title,
+                                listId = listId,
+                                isImportant = important
+                            )
+                            persist(appState.copy(tasks = listOf(newTask) + appState.tasks))
+                        },
+                        onToggleTask = { task ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            persist(
+                                appState.copy(
+                                    tasks = appState.tasks.map {
+                                        if (it.id == task.id) it.copy(isCompleted = !it.isCompleted) else it
+                                    }
+                                )
+                            )
+                        },
+                        onToggleImportant = { task ->
+                            persist(
+                                appState.copy(
+                                    tasks = appState.tasks.map {
+                                        if (it.id == task.id) it.copy(isImportant = !it.isImportant) else it
+                                    }
+                                )
+                            )
+                        },
+                        onClickTask = { selectedTaskId = it.id },
+                        onDeleteTask = ::deleteTaskWithUndo
+                    )
+                }
             }
         }
     }
 
-    // Task Detail Bottom Sheet (Subtasks + Auto-saving Notes)
+    // 1. FIRST-LAUNCH USER ONBOARDING POPUP (Name, DOB, Gender + Random Profile Photo)
+    if (!appState.userProfile.isOnboarded || showEditProfileDialog) {
+        FirstLaunchUserOnboardingDialog(
+            initialProfile = appState.userProfile,
+            isEditing = showEditProfileDialog,
+            onDismiss = { showEditProfileDialog = false },
+            onSaveProfile = { name, dob, gender, seed ->
+                val updatedProfile = appState.userProfile.copy(
+                    isOnboarded = true,
+                    name = name,
+                    dob = dob,
+                    gender = gender,
+                    avatarSeed = seed
+                )
+                persist(appState.copy(userProfile = updatedProfile))
+                showEditProfileDialog = false
+            }
+        )
+    }
+
+    // 2. NATIVE PERMISSIONS & MIUI BACKGROUND ALARM SETUP DIALOG (Right after Onboarding)
+    if (appState.userProfile.isOnboarded && !appState.userProfile.permissionsPromptShown) {
+        NativePermissionSetupDialog(
+            context = context,
+            onDone = {
+                persist(
+                    appState.copy(
+                        userProfile = appState.userProfile.copy(permissionsPromptShown = true)
+                    )
+                )
+            }
+        )
+    }
+
+    // Task Detail Bottom Sheet
     val activeTask = appState.tasks.find { it.id == selectedTaskId }
     if (activeTask != null) {
         TaskDetailBottomSheet(
@@ -470,7 +611,11 @@ fun HabitOSRootScreen() {
                 Toast.makeText(context, "Vault PIN updated", Toast.LENGTH_SHORT).show()
             },
             onClearAllData = {
-                appState = HabitOSStorage.clearAllResettingKeepPin(context, appState.settings.vaultPin)
+                appState = HabitOSStorage.clearAllResettingKeepPinAndProfile(
+                    context,
+                    appState.settings.vaultPin,
+                    appState.userProfile
+                )
                 showVaultDialog = false
                 Toast.makeText(context, "All data & streaks reset to a clean slate.", Toast.LENGTH_LONG).show()
             }
@@ -501,139 +646,1068 @@ fun HabitOSRootScreen() {
 }
 
 // =========================================================================
-// TAB 1: MY DAY SCREEN
+// LEFT SIDEBAR DRAWER (Matches habitos_v2.jpeg + Profile Card at Bottom)
 // =========================================================================
 @Composable
-fun MyDayScreen(
+fun HabitOSSidebarDrawerContent(
     state: PersistedState,
-    onOpenSuggestions: () -> Unit,
-    onAddTask: (String, Boolean) -> Unit,
-    onToggleTask: (TaskItem) -> Unit,
-    onToggleImportant: (TaskItem) -> Unit,
-    onClickTask: (TaskItem) -> Unit,
-    onDeleteTask: (TaskItem) -> Unit
+    activeSection: MainSection,
+    activeCustomListId: String?,
+    searchQuery: String,
+    onSearchChange: (String) -> Unit,
+    onSelectSection: (MainSection, String?) -> Unit,
+    onCloseDrawer: () -> Unit,
+    onOpenEodConfig: () -> Unit,
+    onAddCustomList: (String, Long) -> Unit,
+    onDeleteCustomList: (CustomTaskList) -> Unit,
+    onOpenProfileEdit: () -> Unit
 ) {
-    val today = LocalDate.now()
-    val todayStr = today.toString()
-    var newTaskTitle by remember { mutableStateOf("") }
-    var markImportant by remember { mutableStateOf(false) }
+    val todayStr = LocalDate.now().toString()
+    val palette = listOf(0xFF3B82F6, 0xFF10B981, 0xFFF43F5E, 0xFFA855F7, 0xFFF59E0B)
+    var newListName by remember { mutableStateOf("") }
+    var colorIdx by remember { mutableIntStateOf(0) }
 
-    val myDayTasks = state.tasks.filter {
-        (it.isMyDay && it.myDayDate == todayStr) || it.dueDate == todayStr
-    }
-    val unfinishedSuggestionsCount = state.tasks.count {
-        !it.isCompleted && !(it.isMyDay && it.myDayDate == todayStr)
-    }
+    val myDayCount = state.tasks.count { !it.isCompleted && ((it.isMyDay && it.myDayDate == todayStr) || it.dueDate == todayStr) }
+    val habitsCount = state.habits.size
+    val bdaysCount = state.birthdays.size
+    val importantCount = state.tasks.count { !it.isCompleted && it.isImportant }
+    val plannedCount = state.tasks.count { !it.isCompleted && !it.dueDate.isNullOrBlank() }
+    val allCount = state.tasks.size + state.habits.size
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        // Header + Suggestions button
+        // Top Header: hv Logo + habit OS + Saved on Device + X button
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
-                Text(
-                    text = "My Day",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "${today.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())}, ${
-                        today.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-                    } ${today.dayOfMonth}",
-                    fontSize = 13.sp,
-                    color = TextMuted
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    color = ObsidianCard,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.5.dp, EmeraldPrimary.copy(alpha = 0.6f)),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "hv",
+                            color = EmeraldPrimary,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 18.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("habit", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                        Spacer(Modifier.width(4.dp))
+                        Surface(
+                            color = EmeraldPrimary.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(5.dp)
+                        ) {
+                            Text(
+                                "OS",
+                                color = EmeraldPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(EmeraldPrimary)
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text("Saved on Device", color = TextMuted, fontSize = 11.sp)
+                    }
+                }
             }
-
-            OutlinedButton(
-                onClick = onOpenSuggestions,
-                border = BorderStroke(1.dp, if (unfinishedSuggestionsCount > 0) AmberStreak else ObsidianBorder),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = ObsidianCard)
-            ) {
-                Icon(
-                    Icons.Default.Lightbulb,
-                    contentDescription = "Suggestions",
-                    tint = AmberStreak,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "Suggestions ($unfinishedSuggestionsCount)",
-                    color = TextPrimary,
-                    fontSize = 12.sp
-                )
+            IconButton(onClick = onCloseDrawer) {
+                Icon(Icons.Default.Close, contentDescription = "Close Sidebar", tint = TextMuted)
             }
         }
 
-        // Quick Add Task Bar
+        Spacer(Modifier.height(10.dp))
+
+        // Search Bar
         Surface(
             color = ObsidianCard,
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(10.dp),
             border = BorderStroke(1.dp, ObsidianBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
-                    value = newTaskTitle,
-                    onValueChange = { newTaskTitle = it },
-                    placeholder = { Text("Add a task to My Day...", color = TextMuted, fontSize = 14.sp) },
+                Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                BasicTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchChange,
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = { markImportant = !markImportant }) {
-                    Icon(
-                        imageVector = if (markImportant) Icons.Default.Star else Icons.Outlined.StarBorder,
-                        contentDescription = "Important",
-                        tint = if (markImportant) AmberStreak else TextMuted
-                    )
-                }
-                FilledIconButton(
-                    onClick = {
-                        if (newTaskTitle.isNotBlank()) {
-                            onAddTask(newTaskTitle.trim(), markImportant)
-                            newTaskTitle = ""
-                            markImportant = false
+                    textStyle = ComposeTextStyle(color = TextPrimary, fontSize = 13.sp),
+                    cursorBrush = SolidColor(EmeraldPrimary),
+                    decorationBox = { inner ->
+                        if (searchQuery.isEmpty()) {
+                            Text("Search tasks, steps, note", color = TextMuted, fontSize = 13.sp)
                         }
+                        inner()
                     },
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = EmeraldPrimary)
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // Scrollable Middle Navigation + Custom Lists
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            SidebarNavRow(
+                icon = Icons.Default.WbSunny,
+                iconTint = AmberStreak,
+                label = "My Day",
+                count = myDayCount,
+                selected = activeSection == MainSection.MY_DAY,
+                onClick = { onSelectSection(MainSection.MY_DAY, null) }
+            )
+            SidebarNavRow(
+                icon = Icons.Default.LocalFireDepartment,
+                iconTint = EmeraldPrimary,
+                label = "7-Day Habit Matrix & Chart",
+                count = habitsCount,
+                selected = activeSection == MainSection.HABITS,
+                onClick = { onSelectSection(MainSection.HABITS, null) }
+            )
+            SidebarNavRow(
+                icon = Icons.Default.Cake,
+                iconTint = RoseAlert,
+                label = "Birthdays",
+                count = bdaysCount,
+                selected = activeSection == MainSection.BIRTHDAYS,
+                onClick = { onSelectSection(MainSection.BIRTHDAYS, null) }
+            )
+            SidebarNavRow(
+                icon = Icons.Outlined.StarBorder,
+                iconTint = RoseAlert,
+                label = "Important",
+                count = importantCount,
+                selected = activeSection == MainSection.IMPORTANT,
+                onClick = { onSelectSection(MainSection.IMPORTANT, null) }
+            )
+            SidebarNavRow(
+                icon = Icons.Default.CalendarMonth,
+                iconTint = Color(0xFFA855F7),
+                label = "Planned",
+                count = plannedCount,
+                selected = activeSection == MainSection.PLANNED,
+                onClick = { onSelectSection(MainSection.PLANNED, null) }
+            )
+            SidebarNavRow(
+                icon = Icons.Default.CheckBox,
+                iconTint = Color(0xFF3B82F6),
+                label = "All Tasks & Habits",
+                count = allCount,
+                selected = activeSection == MainSection.ALL_ITEMS,
+                onClick = { onSelectSection(MainSection.ALL_ITEMS, null) }
+            )
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider(color = ObsidianBorder)
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "MY LISTS & CATEGORIES",
+                    color = TextMuted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "${state.customLists.size}",
+                    color = TextMuted,
+                    fontSize = 11.sp
+                )
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            state.customLists.forEach { list ->
+                val count = state.tasks.count { it.listId == list.id && !it.isCompleted }
+                val isSel = activeSection == MainSection.CUSTOM_LIST && activeCustomListId == list.id
+                Surface(
+                    color = if (isSel) EmeraldPrimary.copy(alpha = 0.18f) else Color.Transparent,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectSection(MainSection.CUSTOM_LIST, list.id) }
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add", tint = ObsidianBg)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(Color(list.colorHex))
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = list.name,
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "$count",
+                            color = TextMuted,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(6.dp))
 
-        if (myDayTasks.isEmpty()) {
-            EmptyStateCard(
-                icon = Icons.Default.WbSunny,
-                title = "Clean Slate for Today",
-                subtitle = "Add your focus tasks above or pull unfinished items from Suggestions."
-            )
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 24.dp)
+        // Auto EOD Reminder Card (Matches habitos_v2.jpeg)
+        Surface(
+            color = EmeraldPrimary.copy(alpha = 0.08f),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                items(myDayTasks, key = { it.id }) { task ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.NotificationsActive,
+                        contentDescription = null,
+                        tint = EmeraldPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            "Auto EOD Reminder",
+                            color = EmeraldPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            String.format(
+                                Locale.getDefault(),
+                                "Daily at %02d:%02d",
+                                state.settings.eodHour,
+                                state.settings.eodMinute
+                            ),
+                            color = TextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+                Surface(
+                    color = EmeraldPrimary,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.clickable { onOpenEodConfig() }
+                ) {
+                    Text(
+                        "Config",
+                        color = ObsidianBg,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // + New list bar (Matches habitos_v2.jpeg)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Surface(
+                color = ObsidianCard,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, ObsidianBorder),
+                modifier = Modifier.weight(1f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("+ ", color = TextMuted, fontSize = 13.sp)
+                    BasicTextField(
+                        value = newListName,
+                        onValueChange = { newListName = it },
+                        singleLine = true,
+                        textStyle = ComposeTextStyle(color = TextPrimary, fontSize = 12.sp),
+                        cursorBrush = SolidColor(EmeraldPrimary),
+                        decorationBox = { inner ->
+                            if (newListName.isEmpty()) {
+                                Text("New list (e.g. C...", color = TextMuted, fontSize = 12.sp)
+                            }
+                            inner()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            // Color cycling square
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(palette[colorIdx % palette.size]))
+                    .clickable { colorIdx = (colorIdx + 1) % palette.size }
+            )
+
+            Button(
+                onClick = {
+                    if (newListName.isNotBlank()) {
+                        onAddCustomList(newListName.trim(), palette[colorIdx % palette.size])
+                        newListName = ""
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Text("Add", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider(color = ObsidianBorder)
+        Spacer(Modifier.height(8.dp))
+
+        // USER PROFILE FOOTER AT THE VERY BOTTOM OF THE LIST SIDEBAR (Matches image_a01cfb.png)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onOpenProfileEdit() }
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                RandomUserAvatarBadge(
+                    seed = state.userProfile.avatarSeed,
+                    name = state.userProfile.name
+                )
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = state.userProfile.name.ifBlank { "habitOS User" },
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val sub = buildString {
+                        if (state.userProfile.dob.isNotBlank()) append(state.userProfile.dob)
+                        if (state.userProfile.gender.isNotBlank()) {
+                            if (isNotEmpty()) append(" • ")
+                            append(state.userProfile.gender)
+                        }
+                        if (isEmpty()) append("Pro • Offline")
+                    }
+                    Text(
+                        text = sub,
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            IconButton(onClick = onOpenProfileEdit) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = "Edit Profile",
+                    tint = TextMuted,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SidebarNavRow(
+    icon: ImageVector,
+    iconTint: Color,
+    label: String,
+    count: Int,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = if (selected) EmeraldPrimary else Color.Transparent,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = if (selected) ObsidianBg else iconTint,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = label,
+                color = if (selected) ObsidianBg else TextPrimary,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Surface(
+                color = if (selected) ObsidianBg.copy(alpha = 0.2f) else ObsidianCard,
+                shape = CircleShape
+            ) {
+                Text(
+                    text = "$count",
+                    color = if (selected) ObsidianBg else TextMuted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun RandomUserAvatarBadge(seed: Int, name: String) {
+    val gradients = listOf(
+        listOf(Color(0xFF10B981), Color(0xFF059669)),
+        listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8)),
+        listOf(Color(0xFFF59E0B), Color(0xFFD97706)),
+        listOf(Color(0xFFA855F7), Color(0xFF7E22CE)),
+        listOf(Color(0xFFF43F5E), Color(0xFFBE123C)),
+        listOf(Color(0xFF14B8A6), Color(0xFF0F766E))
+    )
+    val pair = gradients[seed.mod(gradients.size)]
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(Brush.linearGradient(pair))
+            .border(1.5.dp, ObsidianBorder, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        // Stylized geometric avatar portrait + initial
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(
+                color = Color.White.copy(alpha = 0.18f),
+                radius = size.minDimension * 0.22f,
+                center = center.copy(y = size.height * 0.36f)
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.18f),
+                radius = size.minDimension * 0.38f,
+                center = center.copy(y = size.height * 0.88f)
+            )
+        }
+        val initials = name.trim().split(" ")
+            .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+            .take(2)
+            .joinToString("")
+            .ifEmpty { "U" }
+        Text(
+            text = initials,
+            color = Color.White,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 13.sp
+        )
+    }
+}
+
+// =========================================================================
+// TAB 1: MY DAY SCREEN (Matches habitos_web.png Dashboard + Unified Bar)
+// =========================================================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MyDayWebDashboardScreen(
+    state: PersistedState,
+    searchQuery: String,
+    onOpenSuggestions: () -> Unit,
+    onNavigateToHabits: () -> Unit,
+    onAddUnifiedItem: (
+        isHabit: Boolean,
+        title: String,
+        listId: String?,
+        dueDate: String?,
+        cue: String,
+        isMyDay: Boolean,
+        isImportant: Boolean
+    ) -> Unit,
+    onToggleTask: (TaskItem) -> Unit,
+    onToggleImportant: (TaskItem) -> Unit,
+    onToggleHabitToday: (HabitItem) -> Unit,
+    onClickTask: (TaskItem) -> Unit,
+    onDeleteTask: (TaskItem) -> Unit,
+    onDeleteHabit: (HabitItem) -> Unit
+) {
+    val today = LocalDate.now()
+    val todayStr = today.toString()
+    val weekDays = remember { WeekHelper.currentWeekDays(today) }
+
+    // Unified Command Bar States (Matching habitos_web.png)
+    var inputText by remember { mutableStateOf("") }
+    var isHabitMode by remember { mutableStateOf(false) } // false = Task, true = Daily Habit (Matrix)
+    var selectedListId by remember { mutableStateOf(state.customLists.firstOrNull()?.id) }
+    var showListDropdown by remember { mutableStateOf(false) }
+    var selectedDateStr by remember { mutableStateOf(todayStr) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var cueText by remember { mutableStateOf("") }
+    var isMyDaySelected by remember { mutableStateOf(true) }
+    var isImportantSelected by remember { mutableStateOf(false) }
+
+    // KPI Calculations
+    val myDayTasks = state.tasks.filter {
+        (it.isMyDay && it.myDayDate == todayStr) || it.dueDate == todayStr
+    }
+    val doneMyDay = myDayTasks.count { it.isCompleted }
+    val totalMyDay = myDayTasks.size
+    val myDayPct = if (totalMyDay == 0) 0 else (doneMyDay * 100) / totalMyDay
+
+    val consistencyDays = WeekHelper.consistencyStreakDays(state.habits, today)
+    val recordStreak = state.habits.maxOfOrNull { maxOf(it.recordStreak, it.currentStreak(today)) } ?: 0
+
+    val totalWeekChecks = weekDays.sumOf { d ->
+        state.habits.count { it.completedDates.contains(d.toString()) }
+    }
+    val possibleWeekChecks = state.habits.size * 7
+    val weeklyPct = if (possibleWeekChecks == 0) 0 else (totalWeekChecks * 100) / possibleWeekChecks
+    val perfectDaysCount = weekDays.count { WeekHelper.isPerfectDay(state.habits, it) }
+
+    val filteredTasks = myDayTasks.filter {
+        searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) || it.notes.contains(searchQuery, ignoreCase = true)
+    }
+    val filteredHabits = state.habits.filter {
+        searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true)
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(vertical = 10.dp)
+    ) {
+        // 1. TOP KPI DASHBOARD CARDS (Matches habitos_web.png)
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Card 1: MY DAY PROGRESS
+                    Surface(
+                        color = ObsidianCard,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, ObsidianBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onOpenSuggestions() }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("MY DAY PROGRESS", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Icon(Icons.Default.WbSunny, contentDescription = null, tint = AmberStreak, modifier = Modifier.size(15.dp))
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    "$doneMyDay/$totalMyDay",
+                                    color = TextPrimary,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "$myDayPct% done",
+                                    color = EmeraldPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text("Tap for task suggestions", color = TextMuted, fontSize = 10.sp)
+                        }
+                    }
+
+                    // Card 2: CONSISTENCY STREAK
+                    Surface(
+                        color = ObsidianCard,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, ObsidianBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onNavigateToHabits() }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("CONSISTENCY", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Record: ${recordStreak}d",
+                                    color = AmberStreak,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    "$consistencyDays",
+                                    color = TextPrimary,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    "Streak Days",
+                                    color = AmberStreak,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text("Days hitting ≥65% habits", color = TextMuted, fontSize = 10.sp)
+                        }
+                    }
+                }
+
+                // Card 3: WEEKLY HABIT SCORE
+                Surface(
+                    color = ObsidianCard,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, ObsidianBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToHabits() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("WEEKLY HABIT SCORE", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(8.dp))
+                                Surface(
+                                    color = EmeraldPrimary.copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        "👑 $perfectDaysCount Perfect",
+                                        color = EmeraldPrimary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    "$weeklyPct%",
+                                    color = TextPrimary,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "$totalWeekChecks/$possibleWeekChecks checks • Tap to open 7-Day Matrix",
+                                    color = TextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Surface(
+                            color = EmeraldPrimary.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.4f))
+                        ) {
+                            Icon(
+                                Icons.Default.BarChart,
+                                contentDescription = null,
+                                tint = EmeraldPrimary,
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. UNIFIED COMMAND BAR (Matches habitos_web.png)
+        item {
+            Surface(
+                color = ObsidianCard,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, ObsidianBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    // Top Input Row + Add Button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.AddCircleOutline,
+                            contentDescription = null,
+                            tint = EmeraldPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        BasicTextField(
+                            value = inputText,
+                            onValueChange = { inputText = it },
+                            singleLine = true,
+                            textStyle = ComposeTextStyle(color = TextPrimary, fontSize = 14.sp),
+                            cursorBrush = SolidColor(EmeraldPrimary),
+                            decorationBox = { inner ->
+                                if (inputText.isEmpty()) {
+                                    Text(
+                                        "Add a task or daily habit to habitOS...",
+                                        color = TextMuted,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                inner()
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (inputText.isNotBlank()) {
+                                    onAddUnifiedItem(
+                                        isHabitMode,
+                                        inputText.trim(),
+                                        selectedListId,
+                                        selectedDateStr,
+                                        cueText.trim(),
+                                        isMyDaySelected,
+                                        isImportantSelected
+                                    )
+                                    inputText = ""
+                                    cueText = ""
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text("Add", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    HorizontalDivider(color = ObsidianBorder)
+                    Spacer(Modifier.height(8.dp))
+
+                    // Bottom Metadata Chips Row (Type Toggle, Category, Date, Cue, My Day, Important)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Chip 1: Task vs Daily Habit (Matrix)
+                        Surface(
+                            color = ObsidianNav,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (isHabitMode) EmeraldPrimary else ObsidianBorder),
+                            modifier = Modifier.clickable { isHabitMode = !isHabitMode }
+                        ) {
+                            Text(
+                                text = if (isHabitMode) "🔄 Daily Habit (Matrix)" else "☑️ Task Item",
+                                color = if (isHabitMode) EmeraldPrimary else TextPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+
+                        // Chip 2: Category / List selector
+                        Box {
+                            val activeList = state.customLists.find { it.id == selectedListId }
+                            Surface(
+                                color = ObsidianNav,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, ObsidianBorder),
+                                modifier = Modifier.clickable { showListDropdown = true }
+                            ) {
+                                Text(
+                                    text = "📁 ${activeList?.name?.take(14) ?: "Category"} ▾",
+                                    color = TextPrimary,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showListDropdown,
+                                onDismissRequest = { showListDropdown = false },
+                                modifier = Modifier.background(ObsidianCard)
+                            ) {
+                                state.customLists.forEach { list ->
+                                    DropdownMenuItem(
+                                        text = { Text(list.name, color = TextPrimary, fontSize = 12.sp) },
+                                        onClick = {
+                                            selectedListId = list.id
+                                            showListDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Chip 3: Date Picker
+                        Surface(
+                            color = ObsidianNav,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, ObsidianBorder),
+                            modifier = Modifier.clickable { showDatePicker = true }
+                        ) {
+                            Text(
+                                text = "📅 $selectedDateStr",
+                                color = TextPrimary,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Chip 4: Cue input (e.g. 30m)
+                        Surface(
+                            color = ObsidianNav,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, ObsidianBorder),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("🎯 ", fontSize = 11.sp)
+                                BasicTextField(
+                                    value = cueText,
+                                    onValueChange = { cueText = it },
+                                    singleLine = true,
+                                    textStyle = ComposeTextStyle(color = TextPrimary, fontSize = 11.sp),
+                                    cursorBrush = SolidColor(EmeraldPrimary),
+                                    decorationBox = { inner ->
+                                        if (cueText.isEmpty()) {
+                                            Text("Cue (e.g. 30m)", color = TextMuted, fontSize = 11.sp)
+                                        }
+                                        inner()
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+
+                        // Chip 5: My Day Toggle
+                        Surface(
+                            color = if (isMyDaySelected) AmberStreak.copy(alpha = 0.16f) else ObsidianNav,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (isMyDaySelected) AmberStreak else ObsidianBorder),
+                            modifier = Modifier.clickable { isMyDaySelected = !isMyDaySelected }
+                        ) {
+                            Text(
+                                text = "☀️ My Day",
+                                color = if (isMyDaySelected) AmberStreak else TextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+
+                        // Chip 6: Important Toggle
+                        Surface(
+                            color = if (isImportantSelected) RoseAlert.copy(alpha = 0.16f) else ObsidianNav,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (isImportantSelected) RoseAlert else ObsidianBorder),
+                            modifier = Modifier.clickable { isImportantSelected = !isImportantSelected }
+                        ) {
+                            Text(
+                                text = "☆ Important",
+                                color = if (isImportantSelected) RoseAlert else TextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. WORKSPACE CONTENT (Clean state matching habitos_web.png OR active items)
+        if (filteredTasks.isEmpty() && filteredHabits.isEmpty()) {
+            item {
+                Surface(
+                    color = ObsidianCard,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, ObsidianBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(vertical = 28.dp, horizontal = 18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Your habitOS workspace is clean and ready!",
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "Type your first task or daily habit in the bar above to start building your real streak.",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        } else {
+            if (filteredHabits.isNotEmpty()) {
+                item {
+                    Text(
+                        "TODAY'S DAILY HABITS (${filteredHabits.count { it.completedDates.contains(todayStr) }}/${filteredHabits.size})",
+                        color = EmeraldPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+                items(filteredHabits, key = { "myday_h_${it.id}" }) { habit ->
+                    val doneToday = habit.completedDates.contains(todayStr)
+                    Surface(
+                        color = ObsidianCard,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, ObsidianBorder),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggleHabitToday(habit) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = doneToday,
+                                onCheckedChange = { onToggleHabitToday(habit) },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = EmeraldPrimary,
+                                    uncheckedColor = TextMuted,
+                                    checkmarkColor = ObsidianBg
+                                )
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp)
+                            ) {
+                                Text(
+                                    text = habit.name,
+                                    color = if (doneToday) TextMuted else TextPrimary,
+                                    textDecoration = if (doneToday) TextDecoration.LineThrough else TextDecoration.None,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "🔥 Streak: ${habit.currentStreak(today)}d" +
+                                        if (habit.cue.isNotBlank()) " • 🎯 ${habit.cue}" else "",
+                                    color = AmberStreak,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            IconButton(onClick = { onDeleteHabit(habit) }) {
+                                Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete", tint = RoseAlert)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (filteredTasks.isNotEmpty()) {
+                item {
+                    Text(
+                        "MY DAY TASKS (${filteredTasks.count { it.isCompleted }}/${filteredTasks.size})",
+                        color = AmberStreak,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+                items(filteredTasks, key = { "myday_t_${it.id}" }) { task ->
                     TaskRowCard(
                         task = task,
                         customLists = state.customLists,
@@ -644,6 +1718,35 @@ fun MyDayScreen(
                     )
                 }
             }
+        }
+    }
+
+    if (showDatePicker) {
+        val pickerState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pickerState.selectedDateMillis?.let { millis ->
+                            selectedDateStr = Instant.ofEpochMilli(millis)
+                                .atZone(ZoneId.of("UTC"))
+                                .toLocalDate()
+                                .toString()
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("Select", color = EmeraldPrimary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel", color = TextMuted)
+                }
+            }
+        ) {
+            DatePicker(state = pickerState)
         }
     }
 }
@@ -702,6 +1805,9 @@ fun TaskRowCard(
                 if (!task.dueDate.isNullOrBlank()) {
                     metaParts.add("Due ${task.dueDate}")
                 }
+                if (task.cue.isNotBlank()) {
+                    metaParts.add("🎯 ${task.cue}")
+                }
                 if (task.notes.isNotBlank()) {
                     metaParts.add("📝 Note")
                 }
@@ -745,7 +1851,7 @@ fun TaskRowCard(
 }
 
 // =========================================================================
-// TAB 2: 7-DAY INTERACTIVE HABIT MATRIX & WEEKLY STREAK CHART
+// TAB 2: 7-DAY INTERACTIVE HABIT MATRIX (GAP FIXED!)
 // =========================================================================
 @Composable
 fun HabitGridScreen(
@@ -764,8 +1870,8 @@ fun HabitGridScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(vertical = 8.dp)
     ) {
         item {
             Row(
@@ -773,17 +1879,26 @@ fun HabitGridScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                // Modifier.weight(1f) prevents the badge from squishing the title and creating a huge vertical gap!
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                ) {
                     Text(
                         text = "7-Day Habit Matrix",
-                        fontSize = 24.sp,
+                        fontSize = 21.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "Mon–Sun Check-In • Haptic Streak Engine",
-                        fontSize = 13.sp,
-                        color = TextMuted
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 Surface(
@@ -795,12 +1910,12 @@ fun HabitGridScreen(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = "👑", fontSize = 14.sp)
+                        Text(text = "👑", fontSize = 13.sp)
                         Spacer(Modifier.width(4.dp))
                         Text(
                             text = "$perfectDaysCount Perfect",
                             color = AmberStreak,
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -813,7 +1928,7 @@ fun HabitGridScreen(
             WeeklyCompletionBarChart(habits = state.habits, weekDays = weekDays, today = today)
         }
 
-        // Add New Habit Bar
+        // Compact Single-Line Add New Habit Bar
         item {
             Surface(
                 color = ObsidianCard,
@@ -822,22 +1937,30 @@ fun HabitGridScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
+                    BasicTextField(
                         value = newHabitName,
                         onValueChange = { newHabitName = it },
-                        placeholder = { Text("New daily habit (e.g. Code 1 hr, Pull-ups)...", color = TextMuted, fontSize = 14.sp) },
                         singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
+                        textStyle = ComposeTextStyle(color = TextPrimary, fontSize = 14.sp),
+                        cursorBrush = SolidColor(EmeraldPrimary),
+                        decorationBox = { inner ->
+                            if (newHabitName.isEmpty()) {
+                                Text(
+                                    "New daily habit (e.g. Code 1 hr)...",
+                                    color = TextMuted,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            inner()
+                        },
                         modifier = Modifier.weight(1f)
                     )
+                    Spacer(Modifier.width(8.dp))
                     FilledIconButton(
                         onClick = {
                             if (newHabitName.isNotBlank()) {
@@ -845,7 +1968,8 @@ fun HabitGridScreen(
                                 newHabitName = ""
                             }
                         },
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = EmeraldPrimary)
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = EmeraldPrimary),
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Add Habit", tint = ObsidianBg)
                     }
@@ -897,7 +2021,8 @@ fun WeeklyCompletionBarChart(
                     text = "Weekly Completion Trend",
                     color = TextPrimary,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
                 )
                 val totalPossible = (habits.size * 7).coerceAtLeast(1)
                 val totalDone = weekDays.sumOf { d ->
@@ -911,11 +2036,11 @@ fun WeeklyCompletionBarChart(
                     fontSize = 12.sp
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(96.dp),
+                    .height(92.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.Bottom
             ) {
@@ -939,7 +2064,7 @@ fun WeeklyCompletionBarChart(
                         Box(
                             modifier = Modifier
                                 .width(22.dp)
-                                .height(50.dp)
+                                .height(48.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(ObsidianNav),
                             contentAlignment = Alignment.BottomCenter
@@ -1025,7 +2150,6 @@ fun HabitMatrixCard(
 
             Spacer(Modifier.height(10.dp))
 
-            // 7-Day Interactive Check-In Row (Mon - Sun)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -1121,7 +2245,7 @@ fun BirthdaysScreen(
             .fillMaxSize()
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 12.dp)
+        contentPadding = PaddingValues(vertical = 10.dp)
     ) {
         item {
             Row(
@@ -1132,7 +2256,7 @@ fun BirthdaysScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Birthdays & Rescue",
-                        fontSize = 24.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -1153,7 +2277,6 @@ fun BirthdaysScreen(
             }
         }
 
-        // 🚨 YESTERDAY - Missed! Section
         if (missedYesterday.isNotEmpty()) {
             item {
                 Text(
@@ -1175,7 +2298,6 @@ fun BirthdaysScreen(
             }
         }
 
-        // 🎂 TODAY Section
         if (todayBirthdays.isNotEmpty()) {
             item {
                 Text(
@@ -1198,7 +2320,6 @@ fun BirthdaysScreen(
             }
         }
 
-        // 📅 UPCOMING Section
         if (upcomingBirthdays.isNotEmpty()) {
             item {
                 Text(
@@ -1348,7 +2469,7 @@ fun BirthdayCard(
 }
 
 // =========================================================================
-// TAB 4: PLANNED SCREEN (Overdue, Today, Upcoming)
+// TAB 4: PLANNED SCREEN (Single-line compact input fixed!)
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1379,19 +2500,18 @@ fun PlannedScreen(
     ) {
         Text(
             text = "Planned",
-            fontSize = 24.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
-            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
         )
         Text(
             text = "Overdue • Today • Upcoming",
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             color = TextMuted,
-            modifier = Modifier.padding(bottom = 12.dp)
+            modifier = Modifier.padding(bottom = 10.dp)
         )
 
-        // Add Planned Task Bar
         Surface(
             color = ObsidianCard,
             shape = RoundedCornerShape(14.dp),
@@ -1399,20 +2519,27 @@ fun PlannedScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
+                BasicTextField(
                     value = title,
                     onValueChange = { title = it },
-                    placeholder = { Text("Add scheduled task...", color = TextMuted, fontSize = 14.sp) },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
-                    ),
+                    textStyle = ComposeTextStyle(color = TextPrimary, fontSize = 14.sp),
+                    cursorBrush = SolidColor(EmeraldPrimary),
+                    decorationBox = { inner ->
+                        if (title.isEmpty()) {
+                            Text(
+                                "Add scheduled task...",
+                                color = TextMuted,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        inner()
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(onClick = { showDatePicker = true }) {
@@ -1427,7 +2554,8 @@ fun PlannedScreen(
                             title = ""
                         }
                     },
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = EmeraldPrimary)
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = EmeraldPrimary),
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Add", tint = ObsidianBg)
                 }
@@ -1527,186 +2655,113 @@ fun PlannedScreen(
 }
 
 // =========================================================================
-// TAB 5: CUSTOM LISTS WITH COLOR TAGS
+// SIDEBAR FILTERED SECTIONS (Important, All Tasks & Habits, Custom List)
 // =========================================================================
 @Composable
-fun CustomListsScreen(
+fun FilteredListSectionScreen(
     state: PersistedState,
-    onAddList: (String, Long) -> Unit,
-    onDeleteList: (CustomTaskList) -> Unit,
-    onAddTaskToList: (String, String) -> Unit,
+    section: MainSection,
+    customListId: String?,
+    onOpenDrawer: () -> Unit,
+    onAddTask: (String, String?, Boolean) -> Unit,
     onToggleTask: (TaskItem) -> Unit,
     onToggleImportant: (TaskItem) -> Unit,
     onClickTask: (TaskItem) -> Unit,
     onDeleteTask: (TaskItem) -> Unit
 ) {
-    val palette = listOf(0xFF10B981, 0xFF0D9488, 0xFFF59E0B, 0xFFF43F5E, 0xFF3B82F6, 0xFFA855F7)
-    var newListName by remember { mutableStateOf("") }
-    var selectedColor by remember { mutableStateOf(palette.first()) }
-    var selectedListId by remember { mutableStateOf<String?>(state.customLists.firstOrNull()?.id) }
-    var newTaskInList by remember { mutableStateOf("") }
+    val activeList = state.customLists.find { it.id == customListId }
+    val title = when (section) {
+        MainSection.IMPORTANT -> "Important Tasks"
+        MainSection.ALL_ITEMS -> "All Tasks & Habits"
+        MainSection.CUSTOM_LIST -> activeList?.name ?: "Custom List"
+        else -> "Tasks"
+    }
+    var newTaskTitle by remember { mutableStateOf("") }
+
+    val tasks = when (section) {
+        MainSection.IMPORTANT -> state.tasks.filter { it.isImportant }
+        MainSection.ALL_ITEMS -> state.tasks
+        MainSection.CUSTOM_LIST -> state.tasks.filter { it.listId == customListId }
+        else -> state.tasks
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp)
     ) {
-        Text(
-            text = "Custom Lists",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary,
-            modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            OutlinedButton(onClick = onOpenDrawer) {
+                Icon(Icons.Default.FormatListBulleted, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Sidebar", color = TextPrimary, fontSize = 12.sp)
+            }
+        }
 
-        // Create Custom List Card
         Surface(
             color = ObsidianCard,
             shape = RoundedCornerShape(14.dp),
             border = BorderStroke(1.dp, ObsidianBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = newListName,
-                        onValueChange = { newListName = it },
-                        placeholder = { Text("Create new list (e.g. Uni, Projects)...", color = TextMuted, fontSize = 14.sp) },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilledIconButton(
-                        onClick = {
-                            if (newListName.isNotBlank()) {
-                                onAddList(newListName.trim(), selectedColor)
-                                newListName = ""
-                            }
-                        },
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = EmeraldPrimary)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Create List", tint = ObsidianBg)
-                    }
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicTextField(
+                    value = newTaskTitle,
+                    onValueChange = { newTaskTitle = it },
+                    singleLine = true,
+                    textStyle = ComposeTextStyle(color = TextPrimary, fontSize = 14.sp),
+                    cursorBrush = SolidColor(EmeraldPrimary),
+                    decorationBox = { inner ->
+                        if (newTaskTitle.isEmpty()) {
+                            Text("Add task to $title...", color = TextMuted, fontSize = 14.sp)
+                        }
+                        inner()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                FilledIconButton(
+                    onClick = {
+                        if (newTaskTitle.isNotBlank()) {
+                            onAddTask(
+                                newTaskTitle.trim(),
+                                if (section == MainSection.CUSTOM_LIST) customListId else null,
+                                section == MainSection.IMPORTANT
+                            )
+                            newTaskTitle = ""
+                        }
+                    },
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = EmeraldPrimary),
+                    modifier = Modifier.size(36.dp)
                 ) {
-                    palette.forEach { hex ->
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(Color(hex))
-                                .border(
-                                    width = if (selectedColor == hex) 2.5.dp else 0.dp,
-                                    color = Color.White,
-                                    shape = CircleShape
-                                )
-                                .clickable { selectedColor = hex }
-                        )
-                    }
+                    Icon(Icons.Default.Add, contentDescription = "Add", tint = ObsidianBg)
                 }
             }
         }
 
         Spacer(Modifier.height(12.dp))
 
-        if (state.customLists.isNotEmpty()) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.customLists, key = { it.id }) { list ->
-                    val isSelected = selectedListId == list.id
-                    Surface(
-                        color = if (isSelected) Color(list.colorHex).copy(alpha = 0.2f) else ObsidianCard,
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, if (isSelected) Color(list.colorHex) else ObsidianBorder),
-                        modifier = Modifier.clickable { selectedListId = list.id }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(list.colorHex))
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(list.name, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            Spacer(Modifier.width(6.dp))
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "Delete List",
-                                tint = TextMuted,
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .clickable {
-                                        onDeleteList(list)
-                                        if (selectedListId == list.id) {
-                                            selectedListId = state.customLists.firstOrNull { it.id != list.id }?.id
-                                        }
-                                    }
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            val activeList = state.customLists.find { it.id == selectedListId } ?: state.customLists.first()
-            val listTasks = state.tasks.filter { it.listId == activeList.id }
-
-            Surface(
-                color = ObsidianCard,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, ObsidianBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = newTaskInList,
-                        onValueChange = { newTaskInList = it },
-                        placeholder = { Text("Add task to ${activeList.name}...", color = TextMuted, fontSize = 14.sp) },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilledIconButton(
-                        onClick = {
-                            if (newTaskInList.isNotBlank()) {
-                                onAddTaskToList(newTaskInList.trim(), activeList.id)
-                                newTaskInList = ""
-                            }
-                        },
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(activeList.colorHex))
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add", tint = ObsidianBg)
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
+        if (tasks.isEmpty()) {
+            EmptyStateCard(
+                icon = Icons.Default.FormatListBulleted,
+                title = "No Tasks in $title",
+                subtitle = "Add a task above or switch lists using the Left Sidebar."
+            )
+        } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
-                items(listTasks, key = { it.id }) { task ->
+                items(tasks, key = { it.id }) { task ->
                     TaskRowCard(
                         task = task,
                         customLists = state.customLists,
@@ -1717,14 +2772,212 @@ fun CustomListsScreen(
                     )
                 }
             }
-        } else {
-            EmptyStateCard(
-                icon = Icons.Default.FormatListBulleted,
-                title = "No Custom Lists Yet",
-                subtitle = "Create color-tagged lists above to group your tasks."
-            )
         }
     }
+}
+
+// =========================================================================
+// ONE-TIME FIRST LAUNCH USER PROFILE POPUP & NATIVE PERMISSIONS DIALOG
+// =========================================================================
+@Composable
+fun FirstLaunchUserOnboardingDialog(
+    initialProfile: UserProfile,
+    isEditing: Boolean,
+    onDismiss: () -> Unit,
+    onSaveProfile: (name: String, dob: String, gender: String, avatarSeed: Int) -> Unit
+) {
+    var name by remember { mutableStateOf(initialProfile.name) }
+    var dob by remember { mutableStateOf(initialProfile.dob) }
+    var gender by remember { mutableStateOf(initialProfile.gender.ifBlank { "Male" }) }
+    var seed by remember { mutableIntStateOf(initialProfile.avatarSeed) }
+    val genders = listOf("Male", "Female", "Other")
+
+    AlertDialog(
+        onDismissRequest = { if (isEditing) onDismiss() },
+        containerColor = ObsidianCard,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RandomUserAvatarBadge(seed = seed, name = name.ifBlank { "H" })
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = if (isEditing) "Edit Your Profile" else "Welcome to habitOS",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp
+                    )
+                    Text(
+                        text = "Shown at the bottom of your Lists sidebar",
+                        color = TextMuted,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                TextButton(
+                    onClick = { seed = Random.nextInt(0, 100) },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Shuffle Random Avatar", color = EmeraldPrimary, fontSize = 12.sp)
+                }
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Your Full Name") },
+                    placeholder = { Text("e.g. Aayush Kumar") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = dob,
+                    onValueChange = { dob = it },
+                    label = { Text("Date of Birth (DD/MM/YYYY)") },
+                    placeholder = { Text("e.g. 14/08/2008") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("Gender", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    genders.forEach { g ->
+                        val selected = gender == g
+                        Surface(
+                            color = if (selected) EmeraldPrimary.copy(alpha = 0.2f) else ObsidianNav,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (selected) EmeraldPrimary else ObsidianBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { gender = g }
+                        ) {
+                            Text(
+                                text = g,
+                                color = if (selected) EmeraldPrimary else TextMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onSaveProfile(name.trim(), dob.trim(), gender, seed)
+                    }
+                },
+                enabled = name.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+            ) {
+                Text("Save Profile", color = ObsidianBg, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            if (isEditing) {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel", color = TextMuted)
+                }
+            }
+        }
+    )
+}
+
+@Composable
+fun NativePermissionSetupDialog(
+    context: Context,
+    onDone: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDone,
+        containerColor = ObsidianCard,
+        title = {
+            Text(
+                "🔔 Enable Native Background Alerts",
+                color = EmeraldPrimary,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 17.sp
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "To make sure 12:00 Midnight Birthday Reminders and 21:00 EOD Check-Ins fire reliably on your phone:",
+                    color = TextPrimary,
+                    fontSize = 12.sp
+                )
+                Button(
+                    onClick = {
+                        NotificationScheduler.ensureChannel(context)
+                        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        val n = NotificationCompat.Builder(context, NotificationScheduler.CHANNEL_ID)
+                            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                            .setContentTitle("habitOS • Notifications Active! ✅")
+                            .setContentText("Midnight birthday & 21:00 EOD background alerts are ready.")
+                            .setPriority(NotificationCompat.PRIORITY_HIGH)
+                            .setAutoCancel(true)
+                            .build()
+                        nm.notify(7777, n)
+                        Toast.makeText(context, "Test notification fired! Check your status bar.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("1. Fire Test Notification Now", color = ObsidianBg, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.fromParts("package", context.packageName, null)
+                            }
+                            context.startActivity(intent)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("2. Open Notification Settings", color = TextPrimary)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                        }
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("3. Allow Autostart / No Battery Limit", color = AmberStreak)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDone,
+                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+            ) {
+                Text("All Set, Continue", color = ObsidianBg, fontWeight = FontWeight.Bold)
+            }
+        }
+    )
 }
 
 // =========================================================================
@@ -1769,7 +3022,6 @@ fun TaskDetailBottomSheet(
                 }
             }
 
-            // Toggle My Day Chip
             val inMyDay = task.isMyDay && task.myDayDate == todayStr
             FilterChip(
                 selected = inMyDay,
@@ -2188,7 +3440,7 @@ fun EodConfigDialog(
 
 @Composable
 fun EmptyStateCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     title: String,
     subtitle: String
 ) {
@@ -2198,20 +3450,20 @@ fun EmptyStateCard(
         border = BorderStroke(1.dp, ObsidianBorder),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp)
+            .padding(vertical = 8.dp)
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.padding(22.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(icon, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(36.dp))
-            Spacer(Modifier.height(10.dp))
-            Text(title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Icon(icon, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(34.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             Spacer(Modifier.height(4.dp))
             Text(
                 subtitle,
                 color = TextMuted,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 textAlign = TextAlign.Center
             )
         }
