@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val major = 5
+val minor = 0
 // Automatically increments with every GitHub Actions build (e.g. Build 5 -> versionCode 5)
 val buildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
 
@@ -15,7 +17,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = buildNumber
-        versionName = "1.0.$buildNumber"
+        versionName = "$major.$minor.$buildNumber"
 
         vectorDrawables {
             useSupportLibrary = true

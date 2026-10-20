@@ -1,7 +1,23 @@
 v_4.0
+
 Fix Habits gap, add Web My Day dashboard, Left Sidebar Drawer, and Onboarding Profile
 
 
 v_5.0
 
 Fix My Day chip grid, true launcher logo, 4-tab nav with back arrow, and Birthday relations/year/validation
+
+v_5.0.0
+
+Lock permanent debug signing key and auto-increment versionCode. VersionCode will change from here.
+
+
+
+Update/Stage 		VerionCode		VerionName		Changes
+
+Update #1		2			"1.0.1"			Increased when you fix bugs or make backward-compatible small improvements.
+
+Update #2		3			"1.1.0"			Increased when you add new features while maintaining backward compatibility.
+									
+Update #3		4			"2.0.0"			Increased when you introduce breaking changes that may require users to change 
+									how they use the app. (complete UI design & new navigation.)
