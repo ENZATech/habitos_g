@@ -62,8 +62,10 @@ data class HabitItem(
 data class BirthdayPerson(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
+    val relation: String = "Friend", // Brother, Sister, Best Friend, Friend, Mother, Father, Partner, Cousin
     val dayOfMonth: Int,
     val monthValue: Int, // 1..12
+    val birthYear: Int = 2008, // Year of Birth
     val phone: String = "",
     val wishedYear: Int = 0
 ) {
@@ -87,8 +89,88 @@ data class BirthdayPerson(
         return ChronoUnit.DAYS.between(today, next)
     }
 
+    fun turningAge(today: LocalDate = LocalDate.now()): Int? {
+        if (birthYear !in 1900..today.year) return null
+        var nextYear = today.year
+        val thisYearBday = LocalDate.of(
+            today.year,
+            monthValue,
+            dayOfMonth.coerceAtMost(safeDayOfMonth(today.year, monthValue, dayOfMonth))
+        )
+        if (thisYearBday.isBefore(today.minusDays(1))) {
+            nextYear += 1
+        }
+        return (nextYear - birthYear).coerceAtLeast(0)
+    }
+
     private fun safeDayOfMonth(year: Int, month: Int, day: Int): Int {
         return if (month == 2 && day == 29 && !java.time.Year.isLeap(year.toLong())) 28 else day
+    }
+}
+
+object BirthdayWishTemplates {
+    fun generateWish(person: BirthdayPerson, isBelated: Boolean, variantIndex: Int = 0): String {
+        val rel = person.relation.ifBlank { "Friend" }
+        val name = person.name
+        val agePart = person.turningAge()?.let { " (turning $it!)" } ?: ""
+
+        if (isBelated) {
+            val belatedList = when (rel) {
+                "Brother" -> listOf(
+                    "Hey bro $name! 🚨 Happy Belated Birthday! Sorry I missed it yesterday—wishing my brother non-stop success, strength, and an awesome year ahead! 🎂🔥",
+                    "Happy Belated Birthday $name bhai! 🎉 Running a day late, but you know you're always #1. Hope you had a killer celebration! 👑✨"
+                )
+                "Sister" -> listOf(
+                    "Happy Belated Birthday to the best sister ever, $name! 🚨🎂 Sorry I'm a day late—hope your day was as special and bright as you are! 💖✨",
+                    "Hey $name! 🌸 Belated Happy Birthday sis! Wishing you endless happiness, big achievements, and smiles all year round! 🎉"
+                )
+                "Best Friend" -> listOf(
+                    "Yo $name! 🚨 Worst best friend award goes to me for being a day late 😂 Happy Belated Birthday legend! Let's celebrate soon! 🎂🔥",
+                    "Happy Belated Birthday to my ride-or-die $name! 🎉 Sorry for the late text, hope you had an unforgettable blast yesterday! 🚀✨"
+                )
+                "Mother", "Father" -> listOf(
+                    "Happy Belated Birthday $name! 🙏🎂 Sorry for the delay—wishing you wonderful health, peace, and endless happiness always! ❤️✨",
+                    "Warmest Belated Birthday wishes to you, $name! 🌸 Thank you for everything you do—wishing you a healthy and blessed year ahead! 🙏"
+                )
+                "Partner" -> listOf(
+                    "Happy Belated Birthday my favorite person, $name! ❤️🎂 So sorry I'm a day late, let me make it up to you! Wishing you all the love in the world! ✨",
+                    "Hey $name 💖 Belated Happy Birthday! Hope yesterday was magical—here's to making amazing memories together this year! 🥂✨"
+                )
+                else -> listOf(
+                    "Hey $name! 🚨 Happy Belated Birthday! Sorry I'm a day late, hope you had an incredible celebration and wishing you an amazing year ahead! 🎂✨",
+                    "Belated Happy Birthday $name! 🎉 Hope your special day yesterday was packed with fun, laughter, and great memories! 🙌✨"
+                )
+            }
+            return belatedList[variantIndex.mod(belatedList.size)]
+        } else {
+            val onTimeList = when (rel) {
+                "Brother" -> listOf(
+                    "Happy Birthday bro $name!$agePart 🎂🔥 Wishing my brother a power-packed year full of big wins, good health, and unstoppable hustle! 👑🚀",
+                    "Many happy returns of the day, $name bhai! 🎉 Proud to have you as my brother—keep shining and crushing your goals! 💪✨"
+                )
+                "Sister" -> listOf(
+                    "Happy Birthday to my amazing sister $name!$agePart 🎂💖 May your year be filled with joy, big dreams coming true, and endless smiles! 🌸✨",
+                    "Wishing the happiest birthday to my sister $name! 🎉 Stay awesome, keep smiling, and have the best celebration today! 👑💫"
+                )
+                "Best Friend" -> listOf(
+                    "Happy Birthday to my absolute legend of a best friend, $name!$agePart 🎂🔥 Here's to another year of crazy memories and big wins together! 🚀🎉",
+                    "Yo $name! 🎂 Happy Birthday bestie! Wishing you top-tier success, good vibes, and an unforgettable party today! 🏆✨"
+                )
+                "Mother", "Father" -> listOf(
+                    "Happy Birthday $name! 🙏🎂 Wishing you great health, peace, and boundless happiness today and always. Thank you for being my pillar of strength! ❤️✨",
+                    "Warmest Birthday wishes to you, $name! 🌸 May this year bring you wonderful health, joy, and countless blessings! 🙏🎉"
+                )
+                "Partner" -> listOf(
+                    "Happy Birthday to my favorite person, $name!$agePart ❤️🎂 You make every single day brighter—wishing you all the happiness and love in the world! ✨🥂",
+                    "Happy Birthday $name! 💖 So grateful to have you in my life. Hope today brings you as much joy as you bring me! 🎂🌹"
+                )
+                else -> listOf(
+                    "Happy Birthday $name!$agePart 🎂🎉 Wishing you an awesome year ahead filled with great health, big wins, and happiness! ✨",
+                    "Many happy returns of the day, $name! 🥳 Hope your birthday today is packed with great vibes, laughter, and success! 🙌🎂"
+                )
+            }
+            return onTimeList[variantIndex.mod(onTimeList.size)]
+        }
     }
 }
 
@@ -114,7 +196,6 @@ data class AppSettings(
 )
 
 data class PersistedState(
-    // Clean Slate on First Launch: 0 tasks, 0 fake streaks, 0 sample birthdays
     val tasks: List<TaskItem> = emptyList(),
     val habits: List<HabitItem> = emptyList(),
     val birthdays: List<BirthdayPerson> = emptyList(),
@@ -176,7 +257,6 @@ object WeekHelper {
         return habits.all { it.completedDates.contains(key) }
     }
 
-    // Consistency Streak: Consecutive days hitting >= 65% of daily habits
     fun consistencyStreakDays(habits: List<HabitItem>, today: LocalDate = LocalDate.now()): Int {
         if (habits.isEmpty()) return 0
         var streak = 0

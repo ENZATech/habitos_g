@@ -6,14 +6,15 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,9 +22,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.StarBorder
@@ -32,20 +35,27 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle as ComposeTextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
@@ -61,22 +71,86 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.random.Random
 
-enum class HabitOSTab(val label: String) {
-    MY_DAY("My Day"),
-    HABITS("Habits"),
-    BIRTHDAYS("Birthdays"),
-    PLANNED("Planned"),
-    LISTS("Lists")
+// 4 Clean Main Bottom Tabs (Redundant "Lists" tab removed!)
+enum class HabitOSTab(val label: String, val section: MainSection) {
+    MY_DAY("My Day", MainSection.MY_DAY),
+    HABITS("Habits", MainSection.HABITS),
+    BIRTHDAYS("Birthdays", MainSection.BIRTHDAYS),
+    PLANNED("Planned", MainSection.PLANNED)
 }
 
-enum class MainSection {
-    MY_DAY,
-    HABITS,
-    BIRTHDAYS,
-    PLANNED,
-    IMPORTANT,
-    ALL_ITEMS,
-    CUSTOM_LIST
+enum class MainSection(val isSubPage: Boolean) {
+    MY_DAY(false),
+    HABITS(false),
+    BIRTHDAYS(false),
+    PLANNED(false),
+    IMPORTANT(true),
+    ALL_ITEMS(true),
+    CUSTOM_LIST(true)
+}
+
+// =========================================================================
+// EXACT NATIVE LAUNCHER ICON RENDERER (Matches ic_launcher_foreground.xml)
+// =========================================================================
+@Composable
+fun HabitOSLauncherLogo(size: Dp = 38.dp) {
+    Canvas(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(size * 0.28f))
+            .background(ObsidianBg)
+            .border(1.dp, ObsidianBorder, RoundedCornerShape(size * 0.28f))
+    ) {
+        val w = this.size.width
+        val c = Offset(w / 2f, w / 2f)
+
+        // Subtle inner card surface glow (#171412)
+        drawCircle(
+            color = ObsidianCard,
+            radius = w * (34f / 108f),
+            center = c
+        )
+        // Outer Emerald Ring (#10B981)
+        drawCircle(
+            color = EmeraldPrimary,
+            radius = w * (24f / 108f),
+            center = c,
+            style = Stroke(width = w * (4.5f / 108f))
+        )
+        // Inner Teal Accent Fill & Ring (#0D9488)
+        drawCircle(
+            color = EmeraldPrimary.copy(alpha = 0.08f),
+            radius = w * (18f / 108f),
+            center = c
+        )
+        drawCircle(
+            color = TealSecondary,
+            radius = w * (18f / 108f),
+            center = c,
+            style = Stroke(width = w * (1.5f / 108f))
+        )
+        // Crisp Center Checkmark (#10B981): M44,54.5 L51,61.5 L65,46.5
+        val checkPath = Path().apply {
+            moveTo(w * (44f / 108f), w * (54.5f / 108f))
+            lineTo(w * (51f / 108f), w * (61.5f / 108f))
+            lineTo(w * (65f / 108f), w * (46.5f / 108f))
+        }
+        drawPath(
+            path = checkPath,
+            color = EmeraldPrimary,
+            style = Stroke(
+                width = w * (4.5f / 108f),
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+        // Top-Right Streak Dot (#F59E0B) at (71, 37)
+        drawCircle(
+            color = AmberStreak,
+            radius = w * (3.5f / 108f),
+            center = Offset(w * (71f / 108f), w * (37f / 108f))
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,6 +164,7 @@ fun HabitOSRootScreen() {
 
     var appState by remember { mutableStateOf(HabitOSStorage.load(context)) }
     var activeSection by remember { mutableStateOf(MainSection.MY_DAY) }
+    var lastMainTabSection by remember { mutableStateOf(MainSection.MY_DAY) }
     var activeCustomListId by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
 
@@ -99,6 +174,11 @@ fun HabitOSRootScreen() {
     var showVaultDialog by remember { mutableStateOf(false) }
     var showEodTimeDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
+
+    // Hardware Back Button returns from Sub-Page to Home Page
+    BackHandler(enabled = activeSection.isSubPage) {
+        activeSection = lastMainTabSection
+    }
 
     fun persist(next: PersistedState) {
         appState = next
@@ -149,7 +229,6 @@ fun HabitOSRootScreen() {
         }
     }
 
-    // LEFT SLIDING SIDEBAR DRAWER (Matches habitos_v2 + Profile Footer at bottom)
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -158,7 +237,7 @@ fun HabitOSRootScreen() {
                 drawerContentColor = TextPrimary,
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(310.dp)
+                    .width(312.dp)
             ) {
                 HabitOSSidebarDrawerContent(
                     state = appState,
@@ -166,7 +245,12 @@ fun HabitOSRootScreen() {
                     activeCustomListId = activeCustomListId,
                     searchQuery = searchQuery,
                     onSearchChange = { searchQuery = it },
+                    onExecuteSearch = {
+                        activeSection = MainSection.ALL_ITEMS
+                        scope.launch { drawerState.close() }
+                    },
                     onSelectSection = { sec, listId ->
+                        if (!sec.isSubPage) lastMainTabSection = sec
                         activeSection = sec
                         activeCustomListId = listId
                         scope.launch { drawerState.close() }
@@ -186,6 +270,9 @@ fun HabitOSRootScreen() {
                                 }
                             )
                         )
+                        if (activeSection == MainSection.CUSTOM_LIST && activeCustomListId == list.id) {
+                            activeSection = lastMainTabSection
+                        }
                     },
                     onOpenProfileEdit = { showEditProfileDialog = true }
                 )
@@ -212,12 +299,25 @@ fun HabitOSRootScreen() {
                         titleContentColor = TextPrimary
                     ),
                     navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Open Sidebar", tint = TextPrimary)
+                        if (activeSection.isSubPage) {
+                            // Top-left Return Arrow when viewing a Sidebar Sub-Page!
+                            IconButton(onClick = { activeSection = lastMainTabSection }) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back to Home",
+                                    tint = EmeraldPrimary
+                                )
+                            }
+                        } else {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Default.Menu, contentDescription = "Open Sidebar", tint = TextPrimary)
+                            }
                         }
                     },
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            HabitOSLauncherLogo(size = 28.dp)
+                            Spacer(Modifier.width(8.dp))
                             Text(
                                 text = "habit",
                                 fontWeight = FontWeight.ExtraBold,
@@ -226,16 +326,16 @@ fun HabitOSRootScreen() {
                             )
                             Spacer(Modifier.width(4.dp))
                             Surface(
-                                color = EmeraldPrimary.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(6.dp),
-                                border = BorderStroke(1.dp, EmeraldPrimary)
+                                color = EmeraldPrimary.copy(alpha = 0.18f),
+                                shape = RoundedCornerShape(5.dp),
+                                border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.7f))
                             ) {
                                 Text(
                                     text = "OS",
                                     color = EmeraldPrimary,
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                 )
                             }
                         }
@@ -272,66 +372,47 @@ fun HabitOSRootScreen() {
                 )
             },
             bottomBar = {
-                NavigationBar(
-                    containerColor = ObsidianNav,
-                    tonalElevation = 0.dp,
-                    modifier = Modifier.border(BorderStroke(1.dp, ObsidianBorder))
-                ) {
-                    HabitOSTab.entries.forEach { tab ->
-                        val selected = when (tab) {
-                            HabitOSTab.MY_DAY -> activeSection == MainSection.MY_DAY
-                            HabitOSTab.HABITS -> activeSection == MainSection.HABITS
-                            HabitOSTab.BIRTHDAYS -> activeSection == MainSection.BIRTHDAYS
-                            HabitOSTab.PLANNED -> activeSection == MainSection.PLANNED
-                            HabitOSTab.LISTS -> drawerState.isOpen ||
-                                activeSection in listOf(
-                                    MainSection.IMPORTANT,
-                                    MainSection.ALL_ITEMS,
-                                    MainSection.CUSTOM_LIST
-                                )
-                        }
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                when (tab) {
-                                    HabitOSTab.MY_DAY -> activeSection = MainSection.MY_DAY
-                                    HabitOSTab.HABITS -> activeSection = MainSection.HABITS
-                                    HabitOSTab.BIRTHDAYS -> activeSection = MainSection.BIRTHDAYS
-                                    HabitOSTab.PLANNED -> activeSection = MainSection.PLANNED
-                                    HabitOSTab.LISTS -> {
-                                        // Opens the left sidebar drawer just like habitos_v2!
-                                        scope.launch {
-                                            if (drawerState.isOpen) drawerState.close() else drawerState.open()
-                                        }
+                // Only show the 4-tab Bottom Bar on main tabs; Sub-Pages use the top-left Return Arrow
+                if (!activeSection.isSubPage) {
+                    NavigationBar(
+                        containerColor = ObsidianNav,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.border(BorderStroke(1.dp, ObsidianBorder))
+                    ) {
+                        HabitOSTab.entries.forEach { tab ->
+                            val selected = activeSection == tab.section
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = {
+                                    lastMainTabSection = tab.section
+                                    activeSection = tab.section
+                                },
+                                icon = {
+                                    val icon = when (tab) {
+                                        HabitOSTab.MY_DAY -> Icons.Default.WbSunny
+                                        HabitOSTab.HABITS -> Icons.Default.GridOn
+                                        HabitOSTab.BIRTHDAYS -> Icons.Default.Cake
+                                        HabitOSTab.PLANNED -> Icons.Default.CalendarMonth
                                     }
-                                }
-                            },
-                            icon = {
-                                val icon = when (tab) {
-                                    HabitOSTab.MY_DAY -> Icons.Default.WbSunny
-                                    HabitOSTab.HABITS -> Icons.Default.GridOn
-                                    HabitOSTab.BIRTHDAYS -> Icons.Default.Cake
-                                    HabitOSTab.PLANNED -> Icons.Default.CalendarMonth
-                                    HabitOSTab.LISTS -> Icons.Default.FormatListBulleted
-                                }
-                                Icon(icon, contentDescription = tab.label)
-                            },
-                            label = {
-                                Text(
-                                    text = tab.label,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    Icon(icon, contentDescription = tab.label)
+                                },
+                                label = {
+                                    Text(
+                                        text = tab.label,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = EmeraldPrimary,
+                                    selectedTextColor = EmeraldPrimary,
+                                    indicatorColor = EmeraldPrimary.copy(alpha = 0.15f),
+                                    unselectedIconColor = TextMuted,
+                                    unselectedTextColor = TextMuted
                                 )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = EmeraldPrimary,
-                                selectedTextColor = EmeraldPrimary,
-                                indicatorColor = EmeraldPrimary.copy(alpha = 0.15f),
-                                unselectedIconColor = TextMuted,
-                                unselectedTextColor = TextMuted
                             )
-                        )
+                        }
                     }
                 }
             }
@@ -347,7 +428,10 @@ fun HabitOSRootScreen() {
                         state = appState,
                         searchQuery = searchQuery,
                         onOpenSuggestions = { showSuggestionsSheet = true },
-                        onNavigateToHabits = { activeSection = MainSection.HABITS },
+                        onNavigateToHabits = {
+                            lastMainTabSection = MainSection.HABITS
+                            activeSection = MainSection.HABITS
+                        },
                         onAddUnifiedItem = { isHabit, title, listId, dueDate, cue, isMyDay, isImportant ->
                             if (isHabit) {
                                 val newHabit = HabitItem(
@@ -426,11 +510,13 @@ fun HabitOSRootScreen() {
 
                     MainSection.BIRTHDAYS -> BirthdaysScreen(
                         state = appState,
-                        onAddBirthday = { name, day, month, phone ->
+                        onAddBirthday = { name, relation, day, month, year, phone ->
                             val person = BirthdayPerson(
                                 name = name,
+                                relation = relation,
                                 dayOfMonth = day,
                                 monthValue = month,
+                                birthYear = year,
                                 phone = phone
                             )
                             persist(appState.copy(birthdays = appState.birthdays + person))
@@ -489,7 +575,9 @@ fun HabitOSRootScreen() {
                         state = appState,
                         section = activeSection,
                         customListId = activeCustomListId,
-                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                        searchQuery = searchQuery,
+                        onClearSearch = { searchQuery = "" },
+                        onBackToHome = { activeSection = lastMainTabSection },
                         onAddTask = { title, listId, important ->
                             val newTask = TaskItem(
                                 title = title,
@@ -517,15 +605,27 @@ fun HabitOSRootScreen() {
                                 )
                             )
                         },
+                        onToggleHabitToday = { habit ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            val todayStr = LocalDate.now().toString()
+                            persist(
+                                appState.copy(
+                                    habits = appState.habits.map {
+                                        if (it.id == habit.id) it.updatedWithToggle(todayStr) else it
+                                    }
+                                )
+                            )
+                        },
                         onClickTask = { selectedTaskId = it.id },
-                        onDeleteTask = ::deleteTaskWithUndo
+                        onDeleteTask = ::deleteTaskWithUndo,
+                        onDeleteHabit = ::deleteHabitWithUndo
                     )
                 }
             }
         }
     }
 
-    // 1. FIRST-LAUNCH USER ONBOARDING POPUP (Name, DOB, Gender + Random Profile Photo)
+    // 1. FIRST-LAUNCH USER ONBOARDING POPUP
     if (!appState.userProfile.isOnboarded || showEditProfileDialog) {
         FirstLaunchUserOnboardingDialog(
             initialProfile = appState.userProfile,
@@ -545,7 +645,7 @@ fun HabitOSRootScreen() {
         )
     }
 
-    // 2. NATIVE PERMISSIONS & MIUI BACKGROUND ALARM SETUP DIALOG (Right after Onboarding)
+    // 2. NATIVE PERMISSIONS SETUP DIALOG
     if (appState.userProfile.isOnboarded && !appState.userProfile.permissionsPromptShown) {
         NativePermissionSetupDialog(
             context = context,
@@ -646,7 +746,7 @@ fun HabitOSRootScreen() {
 }
 
 // =========================================================================
-// LEFT SIDEBAR DRAWER (Matches habitos_v2.jpeg + Profile Card at Bottom)
+// LEFT SIDEBAR DRAWER (True Launcher Logo + Visible LazyColumn Categories)
 // =========================================================================
 @Composable
 fun HabitOSSidebarDrawerContent(
@@ -655,6 +755,7 @@ fun HabitOSSidebarDrawerContent(
     activeCustomListId: String?,
     searchQuery: String,
     onSearchChange: (String) -> Unit,
+    onExecuteSearch: () -> Unit,
     onSelectSection: (MainSection, String?) -> Unit,
     onCloseDrawer: () -> Unit,
     onOpenEodConfig: () -> Unit,
@@ -679,28 +780,14 @@ fun HabitOSSidebarDrawerContent(
             .fillMaxSize()
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        // Top Header: hv Logo + habit OS + Saved on Device + X button
+        // Top Header with Real App Icon!
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    color = ObsidianCard,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.5.dp, EmeraldPrimary.copy(alpha = 0.6f)),
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "hv",
-                            color = EmeraldPrimary,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 18.sp
-                        )
-                    }
-                }
+                HabitOSLauncherLogo(size = 42.dp)
                 Spacer(Modifier.width(10.dp))
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -708,13 +795,14 @@ fun HabitOSSidebarDrawerContent(
                         Spacer(Modifier.width(4.dp))
                         Surface(
                             color = EmeraldPrimary.copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(5.dp)
+                            shape = RoundedCornerShape(5.dp),
+                            border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.6f))
                         ) {
                             Text(
                                 "OS",
                                 color = EmeraldPrimary,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
@@ -738,7 +826,7 @@ fun HabitOSSidebarDrawerContent(
 
         Spacer(Modifier.height(10.dp))
 
-        // Search Bar
+        // Search Bar with Go/View Results action
         Surface(
             color = ObsidianCard,
             shape = RoundedCornerShape(10.dp),
@@ -746,7 +834,7 @@ fun HabitOSSidebarDrawerContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
@@ -757,102 +845,125 @@ fun HabitOSSidebarDrawerContent(
                     singleLine = true,
                     textStyle = ComposeTextStyle(color = TextPrimary, fontSize = 13.sp),
                     cursorBrush = SolidColor(EmeraldPrimary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onExecuteSearch() }),
                     decorationBox = { inner ->
                         if (searchQuery.isEmpty()) {
-                            Text("Search tasks, steps, note", color = TextMuted, fontSize = 13.sp)
+                            Text("Search tasks, steps, notes...", color = TextMuted, fontSize = 12.sp)
                         }
                         inner()
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.weight(1f)
                 )
+                if (searchQuery.isNotBlank()) {
+                    Text(
+                        text = "Go →",
+                        color = EmeraldPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .clickable { onExecuteSearch() }
+                    )
+                }
             }
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
 
-        // Scrollable Middle Navigation + Custom Lists
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState()),
+        // LazyColumn ensures MY LISTS & CATEGORIES never get squished or hidden!
+        LazyColumn(
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            SidebarNavRow(
-                icon = Icons.Default.WbSunny,
-                iconTint = AmberStreak,
-                label = "My Day",
-                count = myDayCount,
-                selected = activeSection == MainSection.MY_DAY,
-                onClick = { onSelectSection(MainSection.MY_DAY, null) }
-            )
-            SidebarNavRow(
-                icon = Icons.Default.LocalFireDepartment,
-                iconTint = EmeraldPrimary,
-                label = "7-Day Habit Matrix & Chart",
-                count = habitsCount,
-                selected = activeSection == MainSection.HABITS,
-                onClick = { onSelectSection(MainSection.HABITS, null) }
-            )
-            SidebarNavRow(
-                icon = Icons.Default.Cake,
-                iconTint = RoseAlert,
-                label = "Birthdays",
-                count = bdaysCount,
-                selected = activeSection == MainSection.BIRTHDAYS,
-                onClick = { onSelectSection(MainSection.BIRTHDAYS, null) }
-            )
-            SidebarNavRow(
-                icon = Icons.Outlined.StarBorder,
-                iconTint = RoseAlert,
-                label = "Important",
-                count = importantCount,
-                selected = activeSection == MainSection.IMPORTANT,
-                onClick = { onSelectSection(MainSection.IMPORTANT, null) }
-            )
-            SidebarNavRow(
-                icon = Icons.Default.CalendarMonth,
-                iconTint = Color(0xFFA855F7),
-                label = "Planned",
-                count = plannedCount,
-                selected = activeSection == MainSection.PLANNED,
-                onClick = { onSelectSection(MainSection.PLANNED, null) }
-            )
-            SidebarNavRow(
-                icon = Icons.Default.CheckBox,
-                iconTint = Color(0xFF3B82F6),
-                label = "All Tasks & Habits",
-                count = allCount,
-                selected = activeSection == MainSection.ALL_ITEMS,
-                onClick = { onSelectSection(MainSection.ALL_ITEMS, null) }
-            )
-
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider(color = ObsidianBorder)
-            Spacer(Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "MY LISTS & CATEGORIES",
-                    color = TextMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+            item {
+                SidebarNavRow(
+                    icon = Icons.Default.WbSunny,
+                    iconTint = AmberStreak,
+                    label = "My Day",
+                    count = myDayCount,
+                    selected = activeSection == MainSection.MY_DAY,
+                    onClick = { onSelectSection(MainSection.MY_DAY, null) }
                 )
-                Text(
-                    "${state.customLists.size}",
-                    color = TextMuted,
-                    fontSize = 11.sp
+            }
+            item {
+                SidebarNavRow(
+                    icon = Icons.Default.LocalFireDepartment,
+                    iconTint = EmeraldPrimary,
+                    label = "7-Day Habit Matrix & Chart",
+                    count = habitsCount,
+                    selected = activeSection == MainSection.HABITS,
+                    onClick = { onSelectSection(MainSection.HABITS, null) }
+                )
+            }
+            item {
+                SidebarNavRow(
+                    icon = Icons.Default.Cake,
+                    iconTint = RoseAlert,
+                    label = "Birthdays",
+                    count = bdaysCount,
+                    selected = activeSection == MainSection.BIRTHDAYS,
+                    onClick = { onSelectSection(MainSection.BIRTHDAYS, null) }
+                )
+            }
+            item {
+                SidebarNavRow(
+                    icon = Icons.Outlined.StarBorder,
+                    iconTint = RoseAlert,
+                    label = "Important (Sub-Page)",
+                    count = importantCount,
+                    selected = activeSection == MainSection.IMPORTANT,
+                    onClick = { onSelectSection(MainSection.IMPORTANT, null) }
+                )
+            }
+            item {
+                SidebarNavRow(
+                    icon = Icons.Default.CalendarMonth,
+                    iconTint = Color(0xFFA855F7),
+                    label = "Planned",
+                    count = plannedCount,
+                    selected = activeSection == MainSection.PLANNED,
+                    onClick = { onSelectSection(MainSection.PLANNED, null) }
+                )
+            }
+            item {
+                SidebarNavRow(
+                    icon = Icons.Default.CheckBox,
+                    iconTint = Color(0xFF3B82F6),
+                    label = "All Tasks & Habits",
+                    count = allCount,
+                    selected = activeSection == MainSection.ALL_ITEMS,
+                    onClick = { onSelectSection(MainSection.ALL_ITEMS, null) }
                 )
             }
 
-            Spacer(Modifier.height(4.dp))
+            item {
+                Spacer(Modifier.height(6.dp))
+                HorizontalDivider(color = ObsidianBorder)
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "MY LISTS & CATEGORIES",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "${state.customLists.size}",
+                        color = EmeraldPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
 
-            state.customLists.forEach { list ->
+            items(state.customLists, key = { it.id }) { list ->
                 val count = state.tasks.count { it.listId == list.id && !it.isCompleted }
                 val isSel = activeSection == MainSection.CUSTOM_LIST && activeCustomListId == list.id
                 Surface(
@@ -863,7 +974,7 @@ fun HabitOSSidebarDrawerContent(
                         .clickable { onSelectSection(MainSection.CUSTOM_LIST, list.id) }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -884,7 +995,16 @@ fun HabitOSSidebarDrawerContent(
                         Text(
                             text = "$count",
                             color = TextMuted,
-                            fontSize = 12.sp
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(end = 6.dp)
+                        )
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Delete List",
+                            tint = TextMuted.copy(alpha = 0.7f),
+                            modifier = Modifier
+                                .size(15.dp)
+                                .clickable { onDeleteCustomList(list) }
                         )
                     }
                 }
@@ -893,7 +1013,7 @@ fun HabitOSSidebarDrawerContent(
 
         Spacer(Modifier.height(6.dp))
 
-        // Auto EOD Reminder Card (Matches habitos_v2.jpeg)
+        // Auto EOD Reminder Card
         Surface(
             color = EmeraldPrimary.copy(alpha = 0.08f),
             shape = RoundedCornerShape(12.dp),
@@ -950,7 +1070,7 @@ fun HabitOSSidebarDrawerContent(
 
         Spacer(Modifier.height(8.dp))
 
-        // + New list bar (Matches habitos_v2.jpeg)
+        // + New list bar
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -984,7 +1104,6 @@ fun HabitOSSidebarDrawerContent(
                 }
             }
 
-            // Color cycling square
             Box(
                 modifier = Modifier
                     .size(34.dp)
@@ -1010,9 +1129,9 @@ fun HabitOSSidebarDrawerContent(
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider(color = ObsidianBorder)
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
 
-        // USER PROFILE FOOTER AT THE VERY BOTTOM OF THE LIST SIDEBAR (Matches image_a01cfb.png)
+        // USER PROFILE FOOTER AT THE BOTTOM OF THE SIDEBAR
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1083,7 +1202,7 @@ fun SidebarNavRow(
             .clickable { onClick() }
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -1137,7 +1256,6 @@ fun RandomUserAvatarBadge(seed: Int, name: String) {
             .border(1.5.dp, ObsidianBorder, CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        // Stylized geometric avatar portrait + initial
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawCircle(
                 color = Color.White.copy(alpha = 0.18f),
@@ -1165,7 +1283,7 @@ fun RandomUserAvatarBadge(seed: Int, name: String) {
 }
 
 // =========================================================================
-// TAB 1: MY DAY SCREEN (Matches habitos_web.png Dashboard + Unified Bar)
+// TAB 1: MY DAY SCREEN (Balanced 2x2 Chip Grid — Date Never Crushes!)
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1194,9 +1312,8 @@ fun MyDayWebDashboardScreen(
     val todayStr = today.toString()
     val weekDays = remember { WeekHelper.currentWeekDays(today) }
 
-    // Unified Command Bar States (Matching habitos_web.png)
     var inputText by remember { mutableStateOf("") }
-    var isHabitMode by remember { mutableStateOf(false) } // false = Task, true = Daily Habit (Matrix)
+    var isHabitMode by remember { mutableStateOf(false) }
     var selectedListId by remember { mutableStateOf(state.customLists.firstOrNull()?.id) }
     var showListDropdown by remember { mutableStateOf(false) }
     var selectedDateStr by remember { mutableStateOf(todayStr) }
@@ -1205,7 +1322,6 @@ fun MyDayWebDashboardScreen(
     var isMyDaySelected by remember { mutableStateOf(true) }
     var isImportantSelected by remember { mutableStateOf(false) }
 
-    // KPI Calculations
     val myDayTasks = state.tasks.filter {
         (it.isMyDay && it.myDayDate == todayStr) || it.dueDate == todayStr
     }
@@ -1237,14 +1353,13 @@ fun MyDayWebDashboardScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(vertical = 10.dp)
     ) {
-        // 1. TOP KPI DASHBOARD CARDS (Matches habitos_web.png)
+        // 1. TOP KPI DASHBOARD CARDS
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Card 1: MY DAY PROGRESS
                     Surface(
                         color = ObsidianCard,
                         shape = RoundedCornerShape(14.dp),
@@ -1283,7 +1398,6 @@ fun MyDayWebDashboardScreen(
                         }
                     }
 
-                    // Card 2: CONSISTENCY STREAK
                     Surface(
                         color = ObsidianCard,
                         shape = RoundedCornerShape(14.dp),
@@ -1328,7 +1442,6 @@ fun MyDayWebDashboardScreen(
                     }
                 }
 
-                // Card 3: WEEKLY HABIT SCORE
                 Surface(
                     color = ObsidianCard,
                     shape = RoundedCornerShape(14.dp),
@@ -1342,7 +1455,7 @@ fun MyDayWebDashboardScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("WEEKLY HABIT SCORE", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.width(8.dp))
@@ -1371,7 +1484,9 @@ fun MyDayWebDashboardScreen(
                                 Text(
                                     "$totalWeekChecks/$possibleWeekChecks checks • Tap to open 7-Day Matrix",
                                     color = TextMuted,
-                                    fontSize = 11.sp
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1394,7 +1509,7 @@ fun MyDayWebDashboardScreen(
             }
         }
 
-        // 2. UNIFIED COMMAND BAR (Matches habitos_web.png)
+        // 2. UNIFIED COMMAND BAR (Clean 2-Column Chip Grid — Zero Crushing!)
         item {
             Surface(
                 color = ObsidianCard,
@@ -1403,7 +1518,6 @@ fun MyDayWebDashboardScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    // Top Input Row + Add Button
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -1465,42 +1579,50 @@ fun MyDayWebDashboardScreen(
                     HorizontalDivider(color = ObsidianBorder)
                     Spacer(Modifier.height(8.dp))
 
-                    // Bottom Metadata Chips Row (Type Toggle, Category, Date, Cue, My Day, Important)
+                    // ROW 1: 50/50 Split -> [Type Switcher] + [Category Dropdown]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Chip 1: Task vs Daily Habit (Matrix)
                         Surface(
                             color = ObsidianNav,
                             shape = RoundedCornerShape(8.dp),
                             border = BorderStroke(1.dp, if (isHabitMode) EmeraldPrimary else ObsidianBorder),
-                            modifier = Modifier.clickable { isHabitMode = !isHabitMode }
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { isHabitMode = !isHabitMode }
                         ) {
                             Text(
                                 text = if (isHabitMode) "🔄 Daily Habit (Matrix)" else "☑️ Task Item",
                                 color = if (isHabitMode) EmeraldPrimary else TextPrimary,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                             )
                         }
 
-                        // Chip 2: Category / List selector
-                        Box {
+                        Box(modifier = Modifier.weight(1f)) {
                             val activeList = state.customLists.find { it.id == selectedListId }
                             Surface(
                                 color = ObsidianNav,
                                 shape = RoundedCornerShape(8.dp),
                                 border = BorderStroke(1.dp, ObsidianBorder),
-                                modifier = Modifier.clickable { showListDropdown = true }
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showListDropdown = true }
                             ) {
                                 Text(
-                                    text = "📁 ${activeList?.name?.take(14) ?: "Category"} ▾",
+                                    text = "📁 ${activeList?.name ?: "Category"} ▾",
                                     color = TextPrimary,
                                     fontSize = 11.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                                 )
                             }
                             DropdownMenu(
@@ -1519,31 +1641,36 @@ fun MyDayWebDashboardScreen(
                                 }
                             }
                         }
-
-                        // Chip 3: Date Picker
-                        Surface(
-                            color = ObsidianNav,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, ObsidianBorder),
-                            modifier = Modifier.clickable { showDatePicker = true }
-                        ) {
-                            Text(
-                                text = "📅 $selectedDateStr",
-                                color = TextPrimary,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                            )
-                        }
                     }
 
                     Spacer(Modifier.height(6.dp))
 
+                    // ROW 2: 50/50 Split -> [Date Picker Pill] + [Cue Input Pill]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Chip 4: Cue input (e.g. 30m)
+                        Surface(
+                            color = ObsidianNav,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, ObsidianBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { showDatePicker = true }
+                        ) {
+                            Text(
+                                text = "📅 Due: $selectedDateStr",
+                                color = AmberStreak,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                            )
+                        }
+
                         Surface(
                             color = ObsidianNav,
                             shape = RoundedCornerShape(8.dp),
@@ -1551,7 +1678,7 @@ fun MyDayWebDashboardScreen(
                             modifier = Modifier.weight(1f)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("🎯 ", fontSize = 11.sp)
@@ -1563,7 +1690,14 @@ fun MyDayWebDashboardScreen(
                                     cursorBrush = SolidColor(EmeraldPrimary),
                                     decorationBox = { inner ->
                                         if (cueText.isEmpty()) {
-                                            Text("Cue (e.g. 30m)", color = TextMuted, fontSize = 11.sp)
+                                            Text(
+                                                "Cue (e.g. 30m)",
+                                                color = TextMuted,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
                                         }
                                         inner()
                                     },
@@ -1571,36 +1705,53 @@ fun MyDayWebDashboardScreen(
                                 )
                             }
                         }
+                    }
 
-                        // Chip 5: My Day Toggle
+                    Spacer(Modifier.height(6.dp))
+
+                    // ROW 3: 50/50 Split -> [☀️ My Day] + [☆ Important]
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Surface(
                             color = if (isMyDaySelected) AmberStreak.copy(alpha = 0.16f) else ObsidianNav,
                             shape = RoundedCornerShape(8.dp),
                             border = BorderStroke(1.dp, if (isMyDaySelected) AmberStreak else ObsidianBorder),
-                            modifier = Modifier.clickable { isMyDaySelected = !isMyDaySelected }
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { isMyDaySelected = !isMyDaySelected }
                         ) {
                             Text(
-                                text = "☀️ My Day",
+                                text = "☀️ Add to My Day",
                                 color = if (isMyDaySelected) AmberStreak else TextMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
 
-                        // Chip 6: Important Toggle
                         Surface(
                             color = if (isImportantSelected) RoseAlert.copy(alpha = 0.16f) else ObsidianNav,
                             shape = RoundedCornerShape(8.dp),
                             border = BorderStroke(1.dp, if (isImportantSelected) RoseAlert else ObsidianBorder),
-                            modifier = Modifier.clickable { isImportantSelected = !isImportantSelected }
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { isImportantSelected = !isImportantSelected }
                         ) {
                             Text(
-                                text = "☆ Important",
+                                text = "☆ Mark Important",
                                 color = if (isImportantSelected) RoseAlert else TextMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                     }
@@ -1608,7 +1759,7 @@ fun MyDayWebDashboardScreen(
             }
         }
 
-        // 3. WORKSPACE CONTENT (Clean state matching habitos_web.png OR active items)
+        // 3. WORKSPACE CONTENT
         if (filteredTasks.isEmpty() && filteredHabits.isEmpty()) {
             item {
                 Surface(
@@ -1851,7 +2002,7 @@ fun TaskRowCard(
 }
 
 // =========================================================================
-// TAB 2: 7-DAY INTERACTIVE HABIT MATRIX (GAP FIXED!)
+// TAB 2: 7-DAY INTERACTIVE HABIT MATRIX
 // =========================================================================
 @Composable
 fun HabitGridScreen(
@@ -1879,7 +2030,6 @@ fun HabitGridScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Modifier.weight(1f) prevents the badge from squishing the title and creating a huge vertical gap!
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -1923,12 +2073,10 @@ fun HabitGridScreen(
             }
         }
 
-        // Weekly Completion Bar / Trend Chart Card
         item {
             WeeklyCompletionBarChart(habits = state.habits, weekDays = weekDays, today = today)
         }
 
-        // Compact Single-Line Add New Habit Bar
         item {
             Surface(
                 color = ObsidianCard,
@@ -2214,12 +2362,12 @@ fun HabitMatrixCard(
 }
 
 // =========================================================================
-// TAB 3: FRIENDS' BIRTHDAYS & BELATED RESCUE
+// TAB 3: FRIENDS & FAMILY BIRTHDAYS (Relation + Year + Validation Fixed!)
 // =========================================================================
 @Composable
 fun BirthdaysScreen(
     state: PersistedState,
-    onAddBirthday: (String, Int, Int, String) -> Unit,
+    onAddBirthday: (name: String, relation: String, day: Int, month: Int, year: Int, phone: String) -> Unit,
     onMarkWished: (BirthdayPerson) -> Unit,
     onDeleteBirthday: (BirthdayPerson) -> Unit
 ) {
@@ -2261,18 +2409,19 @@ fun BirthdaysScreen(
                         color = TextPrimary
                     )
                     Text(
-                        text = "Day-before & 12:00 Midnight native alerts active",
+                        text = "Relation-aware wishes • Day-before & Midnight alerts",
                         fontSize = 12.sp,
                         color = TextMuted
                     )
                 }
                 Button(
                     onClick = { showAddDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null, tint = ObsidianBg)
                     Spacer(Modifier.width(4.dp))
-                    Text("Add", color = ObsidianBg, fontWeight = FontWeight.Bold)
+                    Text("Add Birthday", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }
@@ -2289,9 +2438,10 @@ fun BirthdaysScreen(
             items(missedYesterday, key = { "missed_${it.id}" }) { person ->
                 BirthdayCard(
                     person = person,
+                    today = today,
                     badgeText = "🚨 YESTERDAY - Missed!",
                     badgeColor = RoseAlert,
-                    actionLabel = "1-Tap Belated Rescue",
+                    actionLabel = "1-Tap Belated ${person.relation} Wish",
                     onWishClick = { activeWishTarget = person to true },
                     onDelete = { onDeleteBirthday(person) }
                 )
@@ -2311,9 +2461,10 @@ fun BirthdaysScreen(
                 val wished = person.wishedYear == today.year
                 BirthdayCard(
                     person = person,
+                    today = today,
                     badgeText = if (wished) "✓ Wished Today" else "🎂 TODAY!",
                     badgeColor = if (wished) EmeraldPrimary else AmberStreak,
-                    actionLabel = "Send Birthday Wish",
+                    actionLabel = "Send ${person.relation} Birthday Wish",
                     onWishClick = { activeWishTarget = person to false },
                     onDelete = { onDeleteBirthday(person) }
                 )
@@ -2333,9 +2484,10 @@ fun BirthdaysScreen(
                 val daysLeft = person.daysUntilNext(today)
                 BirthdayCard(
                     person = person,
+                    today = today,
                     badgeText = "In $daysLeft day(s)",
                     badgeColor = TealSecondary,
-                    actionLabel = "Preview Wish",
+                    actionLabel = "Preview ${person.relation} Wish",
                     onWishClick = { activeWishTarget = person to false },
                     onDelete = { onDeleteBirthday(person) }
                 )
@@ -2347,7 +2499,7 @@ fun BirthdaysScreen(
                 EmptyStateCard(
                     icon = Icons.Default.Cake,
                     title = "0 Sample Birthdays",
-                    subtitle = "Add your friends' birthdays for 1-day-prior alerts, 12:00 Midnight reminders, and 1-tap Belated WhatsApp Rescue."
+                    subtitle = "Tap '+ Add Birthday' above to add friends & family with their Relation, Birth Year, 12:00 Midnight alerts, and custom WhatsApp wishes."
                 )
             }
         }
@@ -2356,8 +2508,8 @@ fun BirthdaysScreen(
     if (showAddDialog) {
         AddBirthdayDialog(
             onDismiss = { showAddDialog = false },
-            onSave = { name, day, month, phone ->
-                onAddBirthday(name, day, month, phone)
+            onSave = { name, relation, day, month, year, phone ->
+                onAddBirthday(name, relation, day, month, year, phone)
                 showAddDialog = false
             }
         )
@@ -2401,6 +2553,7 @@ fun BirthdaysScreen(
 @Composable
 fun BirthdayCard(
     person: BirthdayPerson,
+    today: LocalDate,
     badgeText: String,
     badgeColor: Color,
     actionLabel: String,
@@ -2408,6 +2561,8 @@ fun BirthdayCard(
     onDelete: () -> Unit
 ) {
     val monthName = Month.of(person.monthValue).getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    val turningAge = person.turningAge(today)
+
     Surface(
         color = ObsidianCard,
         shape = RoundedCornerShape(14.dp),
@@ -2421,14 +2576,39 @@ fun BirthdayCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = person.name,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Surface(
+                            color = EmeraldPrimary.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = person.relation.ifBlank { "Friend" },
+                                color = EmeraldPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    val dateAndAge = buildString {
+                        append("$monthName ${person.dayOfMonth}")
+                        if (person.birthYear in 1900..today.year) {
+                            append(", ${person.birthYear}")
+                        }
+                        if (turningAge != null && turningAge > 0) {
+                            append(" • Turning $turningAge")
+                        }
+                    }
                     Text(
-                        text = person.name,
-                        color = TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                    Text(
-                        text = "$monthName ${person.dayOfMonth}",
+                        text = dateAndAge,
                         color = TextMuted,
                         fontSize = 12.sp
                     )
@@ -2454,10 +2634,11 @@ fun BirthdayCard(
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             Button(
                 onClick = onWishClick,
                 colors = ButtonDefaults.buttonColors(containerColor = badgeColor),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Default.Send, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
@@ -2469,7 +2650,7 @@ fun BirthdayCard(
 }
 
 // =========================================================================
-// TAB 4: PLANNED SCREEN (Single-line compact input fixed!)
+// TAB 4: PLANNED SCREEN
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2545,7 +2726,7 @@ fun PlannedScreen(
                 TextButton(onClick = { showDatePicker = true }) {
                     Icon(Icons.Default.Event, contentDescription = null, tint = AmberStreak, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text(selectedDate, color = AmberStreak, fontSize = 12.sp)
+                    Text(selectedDate, color = AmberStreak, fontSize = 12.sp, maxLines = 1, softWrap = false)
                 }
                 FilledIconButton(
                     onClick = {
@@ -2655,35 +2836,50 @@ fun PlannedScreen(
 }
 
 // =========================================================================
-// SIDEBAR FILTERED SECTIONS (Important, All Tasks & Habits, Custom List)
+// FULL-SCREEN SUB-PAGES (Important, All Tasks & Habits, Custom Categories)
 // =========================================================================
 @Composable
 fun FilteredListSectionScreen(
     state: PersistedState,
     section: MainSection,
     customListId: String?,
-    onOpenDrawer: () -> Unit,
+    searchQuery: String,
+    onClearSearch: () -> Unit,
+    onBackToHome: () -> Unit,
     onAddTask: (String, String?, Boolean) -> Unit,
     onToggleTask: (TaskItem) -> Unit,
     onToggleImportant: (TaskItem) -> Unit,
+    onToggleHabitToday: (HabitItem) -> Unit,
     onClickTask: (TaskItem) -> Unit,
-    onDeleteTask: (TaskItem) -> Unit
+    onDeleteTask: (TaskItem) -> Unit,
+    onDeleteHabit: (HabitItem) -> Unit
 ) {
+    val today = LocalDate.now()
+    val todayStr = today.toString()
     val activeList = state.customLists.find { it.id == customListId }
     val title = when (section) {
-        MainSection.IMPORTANT -> "Important Tasks"
-        MainSection.ALL_ITEMS -> "All Tasks & Habits"
-        MainSection.CUSTOM_LIST -> activeList?.name ?: "Custom List"
+        MainSection.IMPORTANT -> "⭐ Important Tasks"
+        MainSection.ALL_ITEMS -> "☑️ All Tasks & Habits"
+        MainSection.CUSTOM_LIST -> activeList?.name ?: "Category"
         else -> "Tasks"
     }
     var newTaskTitle by remember { mutableStateOf("") }
 
-    val tasks = when (section) {
+    val baseTasks = when (section) {
         MainSection.IMPORTANT -> state.tasks.filter { it.isImportant }
         MainSection.ALL_ITEMS -> state.tasks
         MainSection.CUSTOM_LIST -> state.tasks.filter { it.listId == customListId }
         else -> state.tasks
     }
+    val tasks = baseTasks.filter {
+        searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) || it.notes.contains(searchQuery, ignoreCase = true)
+    }
+    val habits = if (section == MainSection.ALL_ITEMS || section == MainSection.CUSTOM_LIST) {
+        state.habits.filter {
+            (section == MainSection.ALL_ITEMS || it.listId == customListId) &&
+                (searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true))
+        }
+    } else emptyList()
 
     Column(
         modifier = Modifier
@@ -2697,11 +2893,19 @@ fun FilteredListSectionScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-            OutlinedButton(onClick = onOpenDrawer) {
-                Icon(Icons.Default.FormatListBulleted, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Sidebar", color = TextPrimary, fontSize = 12.sp)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(
+                    text = "Use top-left ← arrow to return to Home",
+                    fontSize = 11.sp,
+                    color = TextMuted
+                )
+            }
+            if (searchQuery.isNotBlank()) {
+                AssistChip(
+                    onClick = onClearSearch,
+                    label = { Text("Filter: \"$searchQuery\" ✕", color = EmeraldPrimary, fontSize = 11.sp) }
+                )
             }
         }
 
@@ -2723,7 +2927,7 @@ fun FilteredListSectionScreen(
                     cursorBrush = SolidColor(EmeraldPrimary),
                     decorationBox = { inner ->
                         if (newTaskTitle.isEmpty()) {
-                            Text("Add task to $title...", color = TextMuted, fontSize = 14.sp)
+                            Text("Add task to $title...", color = TextMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         inner()
                     },
@@ -2750,26 +2954,65 @@ fun FilteredListSectionScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        if (tasks.isEmpty()) {
+        if (tasks.isEmpty() && habits.isEmpty()) {
             EmptyStateCard(
                 icon = Icons.Default.FormatListBulleted,
-                title = "No Tasks in $title",
-                subtitle = "Add a task above or switch lists using the Left Sidebar."
+                title = "No Items in $title",
+                subtitle = "Add a task above or tap the top-left ← arrow to return to your main dashboard."
             )
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
-                items(tasks, key = { it.id }) { task ->
-                    TaskRowCard(
-                        task = task,
-                        customLists = state.customLists,
-                        onToggle = { onToggleTask(task) },
-                        onToggleImportant = { onToggleImportant(task) },
-                        onClick = { onClickTask(task) },
-                        onDelete = { onDeleteTask(task) }
-                    )
+                if (habits.isNotEmpty()) {
+                    item {
+                        Text("DAILY HABITS (${habits.size})", color = EmeraldPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    items(habits, key = { "sub_h_${it.id}" }) { habit ->
+                        val doneToday = habit.completedDates.contains(todayStr)
+                        Surface(
+                            color = ObsidianCard,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, ObsidianBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onToggleHabitToday(habit) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = doneToday,
+                                    onCheckedChange = { onToggleHabitToday(habit) },
+                                    colors = CheckboxDefaults.colors(checkedColor = EmeraldPrimary, uncheckedColor = TextMuted, checkmarkColor = ObsidianBg)
+                                )
+                                Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                    Text(habit.name, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    Text("🔥 Streak: ${habit.currentStreak(today)}d", color = AmberStreak, fontSize = 11.sp)
+                                }
+                                IconButton(onClick = { onDeleteHabit(habit) }) {
+                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete", tint = RoseAlert)
+                                }
+                            }
+                        }
+                    }
+                }
+                if (tasks.isNotEmpty()) {
+                    item {
+                        Text("TASKS (${tasks.size})", color = AmberStreak, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    items(tasks, key = { "sub_t_${it.id}" }) { task ->
+                        TaskRowCard(
+                            task = task,
+                            customLists = state.customLists,
+                            onToggle = { onToggleTask(task) },
+                            onToggleImportant = { onToggleImportant(task) },
+                            onClick = { onClickTask(task) },
+                            onDelete = { onDeleteTask(task) }
+                        )
+                    }
                 }
             }
         }
@@ -2777,8 +3020,345 @@ fun FilteredListSectionScreen(
 }
 
 // =========================================================================
-// ONE-TIME FIRST LAUNCH USER PROFILE POPUP & NATIVE PERMISSIONS DIALOG
+// REDESIGNED ADD BIRTHDAY DIALOG (Visible Boxes, Relation, Birth Year, Alerts)
 // =========================================================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddBirthdayDialog(
+    onDismiss: () -> Unit,
+    onSave: (name: String, relation: String, day: Int, month: Int, year: Int, phone: String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var relation by remember { mutableStateOf("Friend") }
+    var dayStr by remember { mutableStateOf("") }
+    var monthStr by remember { mutableStateOf("") }
+    var yearStr by remember { mutableStateOf("2008") }
+    var phone by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showCalendarPicker by remember { mutableStateOf(false) }
+
+    val relations = listOf("Friend", "Best Friend", "Brother", "Sister", "Mother", "Father", "Partner", "Cousin")
+
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = ObsidianBg,
+        unfocusedContainerColor = ObsidianBg,
+        focusedBorderColor = EmeraldPrimary,
+        unfocusedBorderColor = EmeraldPrimary.copy(alpha = 0.55f),
+        focusedLabelColor = EmeraldPrimary,
+        unfocusedLabelColor = TextMuted,
+        focusedTextColor = TextPrimary,
+        unfocusedTextColor = TextPrimary,
+        cursorColor = EmeraldPrimary
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = ObsidianCard,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Cake, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text("Add Birthday Reminder", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    Text("Schedules 1-day-before & 12:00 Midnight alerts", color = TextMuted, fontSize = 11.sp)
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // High-Visibility Validation Error Banner
+                if (errorMessage != null) {
+                    Surface(
+                        color = RoseAlert.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, RoseAlert),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = RoseAlert, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(errorMessage!!, color = RoseAlert, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                // 1. CLEARLY VISIBLE PERSON'S NAME INPUT BOX
+                Text("1. Person's Name *", color = EmeraldPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        errorMessage = null
+                    },
+                    placeholder = { Text("Enter name (e.g. Rahul, Priya)...", color = TextMuted, fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = EmeraldPrimary) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = fieldColors,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // 2. RELATION SELECTOR CHIPS
+                Text("2. Relation (for custom birthday wishes) *", color = EmeraldPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    relations.forEach { rel ->
+                        val selected = relation == rel
+                        Surface(
+                            color = if (selected) EmeraldPrimary else ObsidianBg,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (selected) EmeraldPrimary else ObsidianBorder),
+                            modifier = Modifier.clickable { relation = rel }
+                        ) {
+                            Text(
+                                text = rel,
+                                color = if (selected) ObsidianBg else TextPrimary,
+                                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                            )
+                        }
+                    }
+                }
+
+                // 3. DATE OF BIRTH (DAY, MONTH, YEAR + CALENDAR PICKER)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("3. Date & Year of Birth *", color = EmeraldPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    TextButton(
+                        onClick = { showCalendarPicker = true },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                    ) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = AmberStreak, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Pick from Calendar", color = AmberStreak, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = dayStr,
+                        onValueChange = {
+                            dayStr = it.filter { c -> c.isDigit() }.take(2)
+                            errorMessage = null
+                        },
+                        label = { Text("Day", fontSize = 11.sp) },
+                        placeholder = { Text("DD", color = TextMuted) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = fieldColors,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = monthStr,
+                        onValueChange = {
+                            monthStr = it.filter { c -> c.isDigit() }.take(2)
+                            errorMessage = null
+                        },
+                        label = { Text("Month", fontSize = 11.sp) },
+                        placeholder = { Text("MM", color = TextMuted) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = fieldColors,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = yearStr,
+                        onValueChange = {
+                            yearStr = it.filter { c -> c.isDigit() }.take(4)
+                            errorMessage = null
+                        },
+                        label = { Text("Year", fontSize = 11.sp) },
+                        placeholder = { Text("YYYY", color = TextMuted) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = fieldColors,
+                        modifier = Modifier.weight(1.3f)
+                    )
+                }
+
+                // 4. WHATSAPP NUMBER (OPTIONAL)
+                Text("4. WhatsApp Number (Optional)", color = TextMuted, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it },
+                    placeholder = { Text("e.g. 919876543210", color = TextMuted, fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = TextMuted) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = fieldColors,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val cleanName = name.trim()
+                    val d = dayStr.toIntOrNull()
+                    val m = monthStr.toIntOrNull()
+                    val y = yearStr.toIntOrNull() ?: 2008
+
+                    when {
+                        cleanName.isEmpty() -> {
+                            errorMessage = "Please enter the person's name in Box #1!"
+                        }
+                        d == null || d !in 1..31 -> {
+                            errorMessage = "Please enter a valid Day (1 to 31)!"
+                        }
+                        m == null || m !in 1..12 -> {
+                            errorMessage = "Please enter a valid Month (1 to 12)!"
+                        }
+                        y !in 1900..LocalDate.now().year -> {
+                            errorMessage = "Please enter a valid Birth Year (1900–${LocalDate.now().year})!"
+                        }
+                        else -> {
+                            onSave(cleanName, relation, d, m, y, phone.trim())
+                        }
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Save & Schedule Midnight Alert", color = ObsidianBg, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel", color = TextMuted) }
+        }
+    )
+
+    if (showCalendarPicker) {
+        val pickerState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { showCalendarPicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pickerState.selectedDateMillis?.let { millis ->
+                            val picked = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
+                            dayStr = picked.dayOfMonth.toString()
+                            monthStr = picked.monthValue.toString()
+                            yearStr = picked.year.toString()
+                            errorMessage = null
+                        }
+                        showCalendarPicker = false
+                    }
+                ) {
+                    Text("Use Date", color = EmeraldPrimary, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCalendarPicker = false }) {
+                    Text("Cancel", color = TextMuted)
+                }
+            }
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+@Composable
+fun BirthdayWishGeneratorDialog(
+    person: BirthdayPerson,
+    isBelated: Boolean,
+    onDismiss: () -> Unit,
+    onCopyText: (String) -> Unit,
+    onSendWhatsApp: (String) -> Unit
+) {
+    var templateIdx by remember { mutableIntStateOf(0) }
+    var messageText by remember(templateIdx) {
+        mutableStateOf(BirthdayWishTemplates.generateWish(person, isBelated, templateIdx))
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = ObsidianCard,
+        title = {
+            Column {
+                Text(
+                    text = if (isBelated) "🚨 Belated Rescue (${person.relation})" else "🎂 ${person.relation} Birthday Wish",
+                    color = if (isBelated) RoseAlert else EmeraldPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+                Text(
+                    text = "Tailored for ${person.name} • Tap Shuffle for another style",
+                    color = TextMuted,
+                    fontSize = 11.sp
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = { templateIdx += 1 },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = AmberStreak, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Shuffle ${person.relation} Wish", color = AmberStreak, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                OutlinedTextField(
+                    value = messageText,
+                    onValueChange = { messageText = it },
+                    minLines = 4,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedButton(
+                        onClick = { onCopyText(messageText) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Copy Text", color = TextPrimary)
+                    }
+                    Button(
+                        onClick = { onSendWhatsApp(messageText) },
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("WhatsApp", color = ObsidianBg, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close", color = TextMuted) }
+        }
+    )
+}
+
+// =========================================================================
+// FIRST-LAUNCH USER ONBOARDING POPUP (With Calendar Date Picker)
+// =========================================================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FirstLaunchUserOnboardingDialog(
     initialProfile: UserProfile,
@@ -2790,7 +3370,17 @@ fun FirstLaunchUserOnboardingDialog(
     var dob by remember { mutableStateOf(initialProfile.dob) }
     var gender by remember { mutableStateOf(initialProfile.gender.ifBlank { "Male" }) }
     var seed by remember { mutableIntStateOf(initialProfile.avatarSeed) }
+    var showDobPicker by remember { mutableStateOf(false) }
     val genders = listOf("Male", "Female", "Other")
+
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = ObsidianBg,
+        unfocusedContainerColor = ObsidianBg,
+        focusedBorderColor = EmeraldPrimary,
+        unfocusedBorderColor = EmeraldPrimary.copy(alpha = 0.5f),
+        focusedTextColor = TextPrimary,
+        unfocusedTextColor = TextPrimary
+    )
 
     AlertDialog(
         onDismissRequest = { if (isEditing) onDismiss() },
@@ -2807,7 +3397,7 @@ fun FirstLaunchUserOnboardingDialog(
                         fontSize = 18.sp
                     )
                     Text(
-                        text = "Shown at the bottom of your Lists sidebar",
+                        text = "Displayed at the bottom of your sidebar",
                         color = TextMuted,
                         fontSize = 11.sp
                     )
@@ -2828,9 +3418,10 @@ fun FirstLaunchUserOnboardingDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Your Full Name") },
+                    label = { Text("Your Full Name *") },
                     placeholder = { Text("e.g. Aayush Kumar") },
                     singleLine = true,
+                    colors = fieldColors,
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -2839,7 +3430,13 @@ fun FirstLaunchUserOnboardingDialog(
                     onValueChange = { dob = it },
                     label = { Text("Date of Birth (DD/MM/YYYY)") },
                     placeholder = { Text("e.g. 14/08/2008") },
+                    trailingIcon = {
+                        IconButton(onClick = { showDobPicker = true }) {
+                            Icon(Icons.Default.CalendarMonth, contentDescription = "Pick DOB", tint = AmberStreak)
+                        }
+                    },
                     singleLine = true,
+                    colors = fieldColors,
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -2892,6 +3489,33 @@ fun FirstLaunchUserOnboardingDialog(
             }
         }
     )
+
+    if (showDobPicker) {
+        val pickerState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { showDobPicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pickerState.selectedDateMillis?.let { millis ->
+                            val d = Instant.ofEpochMilli(millis).atZone(ZoneId.of("UTC")).toLocalDate()
+                            dob = String.format(Locale.getDefault(), "%02d/%02d/%04d", d.dayOfMonth, d.monthValue, d.year)
+                        }
+                        showDobPicker = false
+                    }
+                ) {
+                    Text("Select", color = EmeraldPrimary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDobPicker = false }) {
+                    Text("Cancel", color = TextMuted)
+                }
+            }
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
 }
 
 @Composable
@@ -2980,9 +3604,6 @@ fun NativePermissionSetupDialog(
     )
 }
 
-// =========================================================================
-// SHEETS & DIALOGS (Task Details, Suggestions, Birthdays, Security Vault)
-// =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskDetailBottomSheet(
@@ -3160,130 +3781,6 @@ fun SuggestionsBottomSheet(
             Spacer(Modifier.height(24.dp))
         }
     }
-}
-
-@Composable
-fun AddBirthdayDialog(
-    onDismiss: () -> Unit,
-    onSave: (String, Int, Int, String) -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    var dayStr by remember { mutableStateOf("14") }
-    var monthStr by remember { mutableStateOf("8") }
-    var phone by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = ObsidianCard,
-        title = { Text("Add Friend's Birthday", color = TextPrimary, fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Friend's Name") },
-                    singleLine = true
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = dayStr,
-                        onValueChange = { dayStr = it.filter { c -> c.isDigit() }.take(2) },
-                        label = { Text("Day (1-31)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = monthStr,
-                        onValueChange = { monthStr = it.filter { c -> c.isDigit() }.take(2) },
-                        label = { Text("Month (1-12)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("WhatsApp Phone (Optional, e.g. 9198...)") },
-                    singleLine = true
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val d = (dayStr.toIntOrNull() ?: 1).coerceIn(1, 31)
-                    val m = (monthStr.toIntOrNull() ?: 1).coerceIn(1, 12)
-                    if (name.isNotBlank()) onSave(name.trim(), d, m, phone.trim())
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
-            ) {
-                Text("Save & Schedule Midnight Alert", color = ObsidianBg, fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = TextMuted) }
-        }
-    )
-}
-
-@Composable
-fun BirthdayWishGeneratorDialog(
-    person: BirthdayPerson,
-    isBelated: Boolean,
-    onDismiss: () -> Unit,
-    onCopyText: (String) -> Unit,
-    onSendWhatsApp: (String) -> Unit
-) {
-    val defaultMessage = if (isBelated) {
-        "Hey ${person.name}! 🚨 Happy Belated Birthday! Sorry I'm a day late, hope you had an incredible celebration and wishing you an amazing year ahead! 🎂✨"
-    } else {
-        "Happy Birthday ${person.name}! 🎂🎉 Wishing you an awesome year ahead filled with great health, big wins, and happiness! ✨"
-    }
-    var messageText by remember { mutableStateOf(defaultMessage) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = ObsidianCard,
-        title = {
-            Text(
-                text = if (isBelated) "🚨 Belated Rescue Generator" else "🎂 1-Tap Birthday Wish",
-                color = if (isBelated) RoseAlert else EmeraldPrimary,
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = messageText,
-                    onValueChange = { messageText = it },
-                    minLines = 4,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedButton(
-                        onClick = { onCopyText(messageText) },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Copy Text", color = TextPrimary)
-                    }
-                    Button(
-                        onClick = { onSendWhatsApp(messageText) },
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("WhatsApp", color = ObsidianBg, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Close", color = TextMuted) }
-        }
-    )
 }
 
 @Composable
