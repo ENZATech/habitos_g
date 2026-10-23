@@ -14,7 +14,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,6 +33,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -71,7 +71,6 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.random.Random
 
-// 4 Clean Main Bottom Tabs (Redundant "Lists" tab removed!)
 enum class HabitOSTab(val label: String, val section: MainSection) {
     MY_DAY("My Day", MainSection.MY_DAY),
     HABITS("Habits", MainSection.HABITS),
@@ -89,9 +88,6 @@ enum class MainSection(val isSubPage: Boolean) {
     CUSTOM_LIST(true)
 }
 
-// =========================================================================
-// EXACT NATIVE LAUNCHER ICON RENDERER (Matches ic_launcher_foreground.xml)
-// =========================================================================
 @Composable
 fun HabitOSLauncherLogo(size: Dp = 38.dp) {
     Canvas(
@@ -104,20 +100,17 @@ fun HabitOSLauncherLogo(size: Dp = 38.dp) {
         val w = this.size.width
         val c = Offset(w / 2f, w / 2f)
 
-        // Subtle inner card surface glow (#171412)
         drawCircle(
             color = ObsidianCard,
             radius = w * (34f / 108f),
             center = c
         )
-        // Outer Emerald Ring (#10B981)
         drawCircle(
             color = EmeraldPrimary,
             radius = w * (24f / 108f),
             center = c,
             style = Stroke(width = w * (4.5f / 108f))
         )
-        // Inner Teal Accent Fill & Ring (#0D9488)
         drawCircle(
             color = EmeraldPrimary.copy(alpha = 0.08f),
             radius = w * (18f / 108f),
@@ -129,7 +122,6 @@ fun HabitOSLauncherLogo(size: Dp = 38.dp) {
             center = c,
             style = Stroke(width = w * (1.5f / 108f))
         )
-        // Crisp Center Checkmark (#10B981): M44,54.5 L51,61.5 L65,46.5
         val checkPath = Path().apply {
             moveTo(w * (44f / 108f), w * (54.5f / 108f))
             lineTo(w * (51f / 108f), w * (61.5f / 108f))
@@ -144,7 +136,6 @@ fun HabitOSLauncherLogo(size: Dp = 38.dp) {
                 join = StrokeJoin.Round
             )
         )
-        // Top-Right Streak Dot (#F59E0B) at (71, 37)
         drawCircle(
             color = AmberStreak,
             radius = w * (3.5f / 108f),
@@ -168,14 +159,12 @@ fun HabitOSRootScreen() {
     var activeCustomListId by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // Sheets & Modals
     var selectedTaskId by remember { mutableStateOf<String?>(null) }
     var showSuggestionsSheet by remember { mutableStateOf(false) }
     var showVaultDialog by remember { mutableStateOf(false) }
     var showEodTimeDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
 
-    // Hardware Back Button returns from Sub-Page to Home Page
     BackHandler(enabled = activeSection.isSubPage) {
         activeSection = lastMainTabSection
     }
@@ -300,7 +289,6 @@ fun HabitOSRootScreen() {
                     ),
                     navigationIcon = {
                         if (activeSection.isSubPage) {
-                            // Top-left Return Arrow when viewing a Sidebar Sub-Page!
                             IconButton(onClick = { activeSection = lastMainTabSection }) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.ArrowBack,
@@ -372,7 +360,6 @@ fun HabitOSRootScreen() {
                 )
             },
             bottomBar = {
-                // Only show the 4-tab Bottom Bar on main tabs; Sub-Pages use the top-left Return Arrow
                 if (!activeSection.isSubPage) {
                     NavigationBar(
                         containerColor = ObsidianNav,
@@ -625,7 +612,6 @@ fun HabitOSRootScreen() {
         }
     }
 
-    // 1. FIRST-LAUNCH USER ONBOARDING POPUP
     if (!appState.userProfile.isOnboarded || showEditProfileDialog) {
         FirstLaunchUserOnboardingDialog(
             initialProfile = appState.userProfile,
@@ -645,7 +631,6 @@ fun HabitOSRootScreen() {
         )
     }
 
-    // 2. NATIVE PERMISSIONS SETUP DIALOG
     if (appState.userProfile.isOnboarded && !appState.userProfile.permissionsPromptShown) {
         NativePermissionSetupDialog(
             context = context,
@@ -659,7 +644,6 @@ fun HabitOSRootScreen() {
         )
     }
 
-    // Task Detail Bottom Sheet
     val activeTask = appState.tasks.find { it.id == selectedTaskId }
     if (activeTask != null) {
         TaskDetailBottomSheet(
@@ -680,7 +664,6 @@ fun HabitOSRootScreen() {
         )
     }
 
-    // My Day Suggestions Bottom Sheet
     if (showSuggestionsSheet) {
         val todayStr = LocalDate.now().toString()
         val suggestions = appState.tasks.filter {
@@ -701,7 +684,6 @@ fun HabitOSRootScreen() {
         )
     }
 
-    // Security-Protected Clear Data Vault Dialog
     if (showVaultDialog) {
         ClearDataVaultDialog(
             currentPin = appState.settings.vaultPin,
@@ -722,7 +704,6 @@ fun HabitOSRootScreen() {
         )
     }
 
-    // EOD Notification Time Configuration Dialog
     if (showEodTimeDialog) {
         EodConfigDialog(
             currentHour = appState.settings.eodHour,
@@ -746,7 +727,7 @@ fun HabitOSRootScreen() {
 }
 
 // =========================================================================
-// LEFT SIDEBAR DRAWER (True Launcher Logo + Visible LazyColumn Categories)
+// LEFT SIDEBAR DRAWER
 // =========================================================================
 @Composable
 fun HabitOSSidebarDrawerContent(
@@ -768,7 +749,9 @@ fun HabitOSSidebarDrawerContent(
     var newListName by remember { mutableStateOf("") }
     var colorIdx by remember { mutableIntStateOf(0) }
 
-    val myDayCount = state.tasks.count { !it.isCompleted && ((it.isMyDay && it.myDayDate == todayStr) || it.dueDate == todayStr) }
+    val pendingMyDayTasks = state.tasks.count { !it.isCompleted && ((it.isMyDay && it.myDayDate == todayStr) || it.dueDate == todayStr) }
+    val pendingMyDayHabits = state.habits.count { !it.completedDates.contains(todayStr) }
+    val myDayCount = pendingMyDayTasks + pendingMyDayHabits
     val habitsCount = state.habits.size
     val bdaysCount = state.birthdays.size
     val importantCount = state.tasks.count { !it.isCompleted && it.isImportant }
@@ -780,7 +763,6 @@ fun HabitOSSidebarDrawerContent(
             .fillMaxSize()
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        // Top Header with Real App Icon!
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -826,7 +808,6 @@ fun HabitOSSidebarDrawerContent(
 
         Spacer(Modifier.height(10.dp))
 
-        // Search Bar with Go/View Results action
         Surface(
             color = ObsidianCard,
             shape = RoundedCornerShape(10.dp),
@@ -871,7 +852,6 @@ fun HabitOSSidebarDrawerContent(
 
         Spacer(Modifier.height(8.dp))
 
-        // LazyColumn ensures MY LISTS & CATEGORIES never get squished or hidden!
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -910,7 +890,7 @@ fun HabitOSSidebarDrawerContent(
                 SidebarNavRow(
                     icon = Icons.Outlined.StarBorder,
                     iconTint = RoseAlert,
-                    label = "Important (Sub-Page)",
+                    label = "Important",
                     count = importantCount,
                     selected = activeSection == MainSection.IMPORTANT,
                     onClick = { onSelectSection(MainSection.IMPORTANT, null) }
@@ -964,7 +944,8 @@ fun HabitOSSidebarDrawerContent(
             }
 
             items(state.customLists, key = { it.id }) { list ->
-                val count = state.tasks.count { it.listId == list.id && !it.isCompleted }
+                val count = state.tasks.count { it.listId == list.id && !it.isCompleted } +
+                    state.habits.count { it.listId == list.id }
                 val isSel = activeSection == MainSection.CUSTOM_LIST && activeCustomListId == list.id
                 Surface(
                     color = if (isSel) EmeraldPrimary.copy(alpha = 0.18f) else Color.Transparent,
@@ -1013,7 +994,6 @@ fun HabitOSSidebarDrawerContent(
 
         Spacer(Modifier.height(6.dp))
 
-        // Auto EOD Reminder Card
         Surface(
             color = EmeraldPrimary.copy(alpha = 0.08f),
             shape = RoundedCornerShape(12.dp),
@@ -1070,7 +1050,6 @@ fun HabitOSSidebarDrawerContent(
 
         Spacer(Modifier.height(8.dp))
 
-        // + New list bar
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1131,7 +1110,6 @@ fun HabitOSSidebarDrawerContent(
         HorizontalDivider(color = ObsidianBorder)
         Spacer(Modifier.height(6.dp))
 
-        // USER PROFILE FOOTER AT THE BOTTOM OF THE SIDEBAR
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1283,7 +1261,7 @@ fun RandomUserAvatarBadge(seed: Int, name: String) {
 }
 
 // =========================================================================
-// TAB 1: MY DAY SCREEN (Balanced 2x2 Chip Grid — Date Never Crushes!)
+// TAB 1: MY DAY SCREEN (Combined Progress + Context-Aware Segmented Bar!)
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1322,12 +1300,16 @@ fun MyDayWebDashboardScreen(
     var isMyDaySelected by remember { mutableStateOf(true) }
     var isImportantSelected by remember { mutableStateOf(false) }
 
+    // COMBINED MY DAY PROGRESS (Today's Tasks + Today's Daily Habits!)
     val myDayTasks = state.tasks.filter {
         (it.isMyDay && it.myDayDate == todayStr) || it.dueDate == todayStr
     }
-    val doneMyDay = myDayTasks.count { it.isCompleted }
-    val totalMyDay = myDayTasks.size
-    val myDayPct = if (totalMyDay == 0) 0 else (doneMyDay * 100) / totalMyDay
+    val doneMyDayTasks = myDayTasks.count { it.isCompleted }
+    val doneTodayHabits = state.habits.count { it.completedDates.contains(todayStr) }
+
+    val doneCombined = doneMyDayTasks + doneTodayHabits
+    val totalCombined = myDayTasks.size + state.habits.size
+    val myDayPct = if (totalCombined == 0) 0 else (doneCombined * 100) / totalCombined
 
     val consistencyDays = WeekHelper.consistencyStreakDays(state.habits, today)
     val recordStreak = state.habits.maxOfOrNull { maxOf(it.recordStreak, it.currentStreak(today)) } ?: 0
@@ -1360,6 +1342,7 @@ fun MyDayWebDashboardScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Card 1: MY DAY PROGRESS (Tasks + Habits Combined)
                     Surface(
                         color = ObsidianCard,
                         shape = RoundedCornerShape(14.dp),
@@ -1380,7 +1363,7 @@ fun MyDayWebDashboardScreen(
                             Spacer(Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.Bottom) {
                                 Text(
-                                    "$doneMyDay/$totalMyDay",
+                                    "$doneCombined/$totalCombined",
                                     color = TextPrimary,
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.ExtraBold
@@ -1394,10 +1377,17 @@ fun MyDayWebDashboardScreen(
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
-                            Text("Tap for task suggestions", color = TextMuted, fontSize = 10.sp)
+                            Text(
+                                text = "$doneMyDayTasks/${myDayTasks.size} tasks • $doneTodayHabits/${state.habits.size} habits",
+                                color = TextMuted,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
 
+                    // Card 2: CONSISTENCY STREAK
                     Surface(
                         color = ObsidianCard,
                         shape = RoundedCornerShape(14.dp),
@@ -1437,11 +1427,18 @@ fun MyDayWebDashboardScreen(
                                 )
                             }
                             Spacer(Modifier.height(4.dp))
-                            Text("Days hitting ≥65% habits", color = TextMuted, fontSize = 10.sp)
+                            Text(
+                                "Days hitting ≥65% habits",
+                                color = TextMuted,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
 
+                // Card 3: WEEKLY HABIT SCORE
                 Surface(
                     color = ObsidianCard,
                     shape = RoundedCornerShape(14.dp),
@@ -1482,7 +1479,7 @@ fun MyDayWebDashboardScreen(
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    "$totalWeekChecks/$possibleWeekChecks checks • Tap to open 7-Day Matrix",
+                                    "$totalWeekChecks/$possibleWeekChecks checks • Tap for 7-Day Matrix",
                                     color = TextMuted,
                                     fontSize = 11.sp,
                                     maxLines = 1,
@@ -1509,7 +1506,7 @@ fun MyDayWebDashboardScreen(
             }
         }
 
-        // 2. UNIFIED COMMAND BAR (Clean 2-Column Chip Grid — Zero Crushing!)
+        // 2. CONTEXT-AWARE UNIFIED COMMAND CARD
         item {
             Surface(
                 color = ObsidianCard,
@@ -1518,6 +1515,57 @@ fun MyDayWebDashboardScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
+                    // Clean 2-Tab Segmented Switcher at the Top (Zero Truncation!)
+                    Surface(
+                        color = ObsidianBg,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, ObsidianBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Surface(
+                                color = if (!isHabitMode) EmeraldPrimary else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { isHabitMode = false }
+                            ) {
+                                Text(
+                                    text = "☑️ One-Time Task",
+                                    color = if (!isHabitMode) ObsidianBg else TextMuted,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 7.dp)
+                                )
+                            }
+                            Surface(
+                                color = if (isHabitMode) EmeraldPrimary else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { isHabitMode = true }
+                            ) {
+                                Text(
+                                    text = "🔄 Daily Habit",
+                                    color = if (isHabitMode) ObsidianBg else TextMuted,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 7.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    // Text Input Row + Add Button
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -1538,7 +1586,8 @@ fun MyDayWebDashboardScreen(
                             decorationBox = { inner ->
                                 if (inputText.isEmpty()) {
                                     Text(
-                                        "Add a task or daily habit to habitOS...",
+                                        text = if (isHabitMode) "Enter daily habit (e.g. Read 20 mins)..."
+                                        else "Enter task title...",
                                         color = TextMuted,
                                         fontSize = 13.sp,
                                         maxLines = 1,
@@ -1557,10 +1606,10 @@ fun MyDayWebDashboardScreen(
                                         isHabitMode,
                                         inputText.trim(),
                                         selectedListId,
-                                        selectedDateStr,
+                                        if (isHabitMode) null else selectedDateStr,
                                         cueText.trim(),
                                         isMyDaySelected,
-                                        isImportantSelected
+                                        if (isHabitMode) false else isImportantSelected
                                     )
                                     inputText = ""
                                     cueText = ""
@@ -1579,32 +1628,12 @@ fun MyDayWebDashboardScreen(
                     HorizontalDivider(color = ObsidianBorder)
                     Spacer(Modifier.height(8.dp))
 
-                    // ROW 1: 50/50 Split -> [Type Switcher] + [Category Dropdown]
+                    // Metadata Row 1: Category + Cue (Always shown for both Task & Habit)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            color = ObsidianNav,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, if (isHabitMode) EmeraldPrimary else ObsidianBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { isHabitMode = !isHabitMode }
-                        ) {
-                            Text(
-                                text = if (isHabitMode) "🔄 Daily Habit (Matrix)" else "☑️ Task Item",
-                                color = if (isHabitMode) EmeraldPrimary else TextPrimary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
-                            )
-                        }
-
                         Box(modifier = Modifier.weight(1f)) {
                             val activeList = state.customLists.find { it.id == selectedListId }
                             Surface(
@@ -1640,35 +1669,6 @@ fun MyDayWebDashboardScreen(
                                     )
                                 }
                             }
-                        }
-                    }
-
-                    Spacer(Modifier.height(6.dp))
-
-                    // ROW 2: 50/50 Split -> [Date Picker Pill] + [Cue Input Pill]
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            color = ObsidianNav,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, ObsidianBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { showDatePicker = true }
-                        ) {
-                            Text(
-                                text = "📅 Due: $selectedDateStr",
-                                color = AmberStreak,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
-                            )
                         }
 
                         Surface(
@@ -1707,52 +1707,79 @@ fun MyDayWebDashboardScreen(
                         }
                     }
 
-                    Spacer(Modifier.height(6.dp))
-
-                    // ROW 3: 50/50 Split -> [☀️ My Day] + [☆ Important]
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            color = if (isMyDaySelected) AmberStreak.copy(alpha = 0.16f) else ObsidianNav,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, if (isMyDaySelected) AmberStreak else ObsidianBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { isMyDaySelected = !isMyDaySelected }
+                    // Metadata Row 2: ONLY shown when in "One-Time Task" Mode!
+                    // (Daily Habits do NOT show Due Date, My Day, or Mark Important)
+                    if (!isHabitMode) {
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "☀️ Add to My Day",
-                                color = if (isMyDaySelected) AmberStreak else TextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
+                            val parsedDue = runCatching { LocalDate.parse(selectedDateStr) }.getOrNull()
+                            val shortDue = if (parsedDue != null) {
+                                "${parsedDue.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${parsedDue.dayOfMonth}"
+                            } else selectedDateStr
 
-                        Surface(
-                            color = if (isImportantSelected) RoseAlert.copy(alpha = 0.16f) else ObsidianNav,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, if (isImportantSelected) RoseAlert else ObsidianBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { isImportantSelected = !isImportantSelected }
-                        ) {
-                            Text(
-                                text = "☆ Mark Important",
-                                color = if (isImportantSelected) RoseAlert else TextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
+                            Surface(
+                                color = ObsidianNav,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, ObsidianBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { showDatePicker = true }
+                            ) {
+                                Text(
+                                    text = "📅 Due: $shortDue",
+                                    color = AmberStreak,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
+                            }
+
+                            Surface(
+                                color = if (isMyDaySelected) AmberStreak.copy(alpha = 0.16f) else ObsidianNav,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, if (isMyDaySelected) AmberStreak else ObsidianBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { isMyDaySelected = !isMyDaySelected }
+                            ) {
+                                Text(
+                                    text = "☀️ My Day",
+                                    color = if (isMyDaySelected) AmberStreak else TextMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
+                            }
+
+                            Surface(
+                                color = if (isImportantSelected) RoseAlert.copy(alpha = 0.16f) else ObsidianNav,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, if (isImportantSelected) RoseAlert else ObsidianBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { isImportantSelected = !isImportantSelected }
+                            ) {
+                                Text(
+                                    text = "☆ Important",
+                                    color = if (isImportantSelected) RoseAlert else TextMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -2002,7 +2029,7 @@ fun TaskRowCard(
 }
 
 // =========================================================================
-// TAB 2: 7-DAY INTERACTIVE HABIT MATRIX
+// TAB 2: 7-DAY HABIT MATRIX (Multi-Week History + Anti-Cheat Today-Only Lock!)
 // =========================================================================
 @Composable
 fun HabitGridScreen(
@@ -2011,8 +2038,10 @@ fun HabitGridScreen(
     onToggleHabitDate: (HabitItem, String) -> Unit,
     onDeleteHabit: (HabitItem) -> Unit
 ) {
-    val weekDays = remember { WeekHelper.currentWeekDays() }
+    val context = LocalContext.current
     val today = LocalDate.now()
+    var weekOffset by remember { mutableIntStateOf(0) }
+    val weekDays = remember(weekOffset, today) { WeekHelper.weekDaysForOffset(weekOffset, today) }
     var newHabitName by remember { mutableStateOf("") }
 
     val perfectDaysCount = weekDays.count { WeekHelper.isPerfectDay(state.habits, it) }
@@ -2044,9 +2073,9 @@ fun HabitGridScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Mon–Sun Check-In • Haptic Streak Engine",
-                        fontSize = 12.sp,
-                        color = TextMuted,
+                        text = "🔒 Anti-Cheat Lock: Only Today can be marked",
+                        fontSize = 11.sp,
+                        color = EmeraldPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -2073,8 +2102,15 @@ fun HabitGridScreen(
             }
         }
 
+        // Weekly Completion Trend Card with Multi-Week History Navigator
         item {
-            WeeklyCompletionBarChart(habits = state.habits, weekDays = weekDays, today = today)
+            WeeklyCompletionBarChart(
+                habits = state.habits,
+                weekDays = weekDays,
+                today = today,
+                weekOffset = weekOffset,
+                onChangeWeekOffset = { weekOffset = it }
+            )
         }
 
         item {
@@ -2139,7 +2175,18 @@ fun HabitGridScreen(
                     habit = habit,
                     weekDays = weekDays,
                     today = today,
-                    onToggleDate = { dateStr -> onToggleHabitDate(habit, dateStr) },
+                    onToggleDate = { clickedDate ->
+                        if (clickedDate == today) {
+                            onToggleHabitDate(habit, clickedDate.toString())
+                        } else {
+                            val msg = if (clickedDate.isBefore(today)) {
+                                "🔒 Day has ended! Past habits are locked to protect streak integrity."
+                            } else {
+                                "🔒 Future days cannot be marked in advance!"
+                            }
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     onDelete = { onDeleteHabit(habit) }
                 )
             }
@@ -2151,8 +2198,15 @@ fun HabitGridScreen(
 fun WeeklyCompletionBarChart(
     habits: List<HabitItem>,
     weekDays: List<LocalDate>,
-    today: LocalDate
+    today: LocalDate,
+    weekOffset: Int,
+    onChangeWeekOffset: (Int) -> Unit
 ) {
+    val startDay = weekDays.first()
+    val endDay = weekDays.last()
+    val rangeLabel = "${startDay.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${startDay.dayOfMonth} – " +
+        "${endDay.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${endDay.dayOfMonth}"
+
     Surface(
         color = ObsidianCard,
         shape = RoundedCornerShape(14.dp),
@@ -2169,8 +2223,7 @@ fun WeeklyCompletionBarChart(
                     text = "Weekly Completion Trend",
                     color = TextPrimary,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp,
-                    modifier = Modifier.weight(1f)
+                    fontSize = 14.sp
                 )
                 val totalPossible = (habits.size * 7).coerceAtLeast(1)
                 val totalDone = weekDays.sumOf { d ->
@@ -2178,13 +2231,81 @@ fun WeeklyCompletionBarChart(
                 }
                 val weeklyPct = if (habits.isEmpty()) 0 else (totalDone * 100) / totalPossible
                 Text(
-                    text = "$weeklyPct% This Week",
+                    text = "$weeklyPct% (${if (weekOffset == 0) "This Week" else rangeLabel})",
                     color = EmeraldPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp
                 )
             }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Multi-Week Navigator Bar (< Prev Week | Date Range | Next Week >)
+            Surface(
+                color = ObsidianNav,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, ObsidianBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "◀ Prev Week",
+                        color = TextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onChangeWeekOffset(weekOffset - 1) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = rangeLabel,
+                            color = AmberStreak,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (weekOffset != 0) {
+                            Spacer(Modifier.width(6.dp))
+                            Surface(
+                                color = EmeraldPrimary.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.clickable { onChangeWeekOffset(0) }
+                            ) {
+                                Text(
+                                    text = "Today",
+                                    color = EmeraldPrimary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    val canGoNext = weekOffset < 0
+                    Text(
+                        text = "Next Week ▶",
+                        color = if (canGoNext) TextPrimary else TextMuted.copy(alpha = 0.35f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(enabled = canGoNext) { onChangeWeekOffset(weekOffset + 1) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
             Spacer(Modifier.height(10.dp))
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2250,7 +2371,7 @@ fun HabitMatrixCard(
     habit: HabitItem,
     weekDays: List<LocalDate>,
     today: LocalDate,
-    onToggleDate: (String) -> Unit,
+    onToggleDate: (LocalDate) -> Unit,
     onDelete: () -> Unit
 ) {
     val activeStreak = habit.currentStreak(today)
@@ -2311,7 +2432,8 @@ fun HabitMatrixCard(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
-                            .clickable { onToggleDate(dateStr) }
+                            .clickable { onToggleDate(date) }
+                            .alpha(if (isToday || checked) 1f else 0.45f)
                             .padding(4.dp)
                     ) {
                         Text(
@@ -2329,7 +2451,7 @@ fun HabitMatrixCard(
                                     if (checked) EmeraldPrimary else ObsidianNav
                                 )
                                 .border(
-                                    width = 1.dp,
+                                    width = if (isToday) 1.5.dp else 1.dp,
                                     color = when {
                                         checked -> EmeraldPrimary
                                         isToday -> AmberStreak
@@ -2349,7 +2471,8 @@ fun HabitMatrixCard(
                             } else {
                                 Text(
                                     text = date.dayOfMonth.toString(),
-                                    color = TextMuted,
+                                    color = if (isToday) TextPrimary else TextMuted,
+                                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                                     fontSize = 11.sp
                                 )
                             }
@@ -2362,7 +2485,7 @@ fun HabitMatrixCard(
 }
 
 // =========================================================================
-// TAB 3: FRIENDS & FAMILY BIRTHDAYS (Relation + Year + Validation Fixed!)
+// TAB 3: BIRTHDAYS (Private Relation + Clean Single-Line Cards + Tight Dialog)
 // =========================================================================
 @Composable
 fun BirthdaysScreen(
@@ -2392,7 +2515,7 @@ fun BirthdaysScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(vertical = 10.dp)
     ) {
         item {
@@ -2401,27 +2524,36 @@ fun BirthdaysScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 10.dp)
+                ) {
                     Text(
                         text = "Birthdays & Rescue",
-                        fontSize = 22.sp,
+                        fontSize = 21.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Relation-aware wishes • Day-before & Midnight alerts",
+                        text = "Day-before & 12:00 Midnight native alerts",
                         fontSize = 12.sp,
-                        color = TextMuted
+                        color = TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 Button(
                     onClick = { showAddDialog = true },
                     colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = ObsidianBg)
+                    Icon(Icons.Default.Add, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Add Birthday", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Add", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }
@@ -2432,16 +2564,16 @@ fun BirthdaysScreen(
                     text = "🚨 YESTERDAY - Missed! (Belated Rescue)",
                     color = RoseAlert,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 )
             }
             items(missedYesterday, key = { "missed_${it.id}" }) { person ->
                 BirthdayCard(
                     person = person,
                     today = today,
-                    badgeText = "🚨 YESTERDAY - Missed!",
+                    badgeText = "Missed!",
                     badgeColor = RoseAlert,
-                    actionLabel = "1-Tap Belated ${person.relation} Wish",
+                    actionLabel = "Send Belated Birthday Wish",
                     onWishClick = { activeWishTarget = person to true },
                     onDelete = { onDeleteBirthday(person) }
                 )
@@ -2454,7 +2586,7 @@ fun BirthdaysScreen(
                     text = "🎂 TODAY'S BIRTHDAYS",
                     color = AmberStreak,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 )
             }
             items(todayBirthdays, key = { "today_${it.id}" }) { person ->
@@ -2462,9 +2594,9 @@ fun BirthdaysScreen(
                 BirthdayCard(
                     person = person,
                     today = today,
-                    badgeText = if (wished) "✓ Wished Today" else "🎂 TODAY!",
+                    badgeText = if (wished) "✓ Wished" else "🎂 TODAY!",
                     badgeColor = if (wished) EmeraldPrimary else AmberStreak,
-                    actionLabel = "Send ${person.relation} Birthday Wish",
+                    actionLabel = "Send Birthday Wish",
                     onWishClick = { activeWishTarget = person to false },
                     onDelete = { onDeleteBirthday(person) }
                 )
@@ -2474,10 +2606,10 @@ fun BirthdaysScreen(
         if (upcomingBirthdays.isNotEmpty()) {
             item {
                 Text(
-                    text = "📅 UPCOMING BIRTHDAYS",
+                    text = "📅 UPCOMING BIRTHDAYS (${upcomingBirthdays.size})",
                     color = EmeraldPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 )
             }
             items(upcomingBirthdays, key = { "up_${it.id}" }) { person ->
@@ -2485,9 +2617,9 @@ fun BirthdaysScreen(
                 BirthdayCard(
                     person = person,
                     today = today,
-                    badgeText = "In $daysLeft day(s)",
+                    badgeText = "In ${daysLeft}d",
                     badgeColor = TealSecondary,
-                    actionLabel = "Preview ${person.relation} Wish",
+                    actionLabel = "Send Birthday Wish",
                     onWishClick = { activeWishTarget = person to false },
                     onDelete = { onDeleteBirthday(person) }
                 )
@@ -2499,7 +2631,7 @@ fun BirthdaysScreen(
                 EmptyStateCard(
                     icon = Icons.Default.Cake,
                     title = "0 Sample Birthdays",
-                    subtitle = "Tap '+ Add Birthday' above to add friends & family with their Relation, Birth Year, 12:00 Midnight alerts, and custom WhatsApp wishes."
+                    subtitle = "Tap '+ Add' above to track birthdays with 1-day-prior alerts, 12:00 Midnight reminders, and custom wishes."
                 )
             }
         }
@@ -2563,40 +2695,32 @@ fun BirthdayCard(
     val monthName = Month.of(person.monthValue).getDisplayName(TextStyle.SHORT, Locale.getDefault())
     val turningAge = person.turningAge(today)
 
+    // Privacy Protected: Relation is NEVER shown on the card face or button!
     Surface(
         color = ObsidianCard,
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.5f)),
+        border = BorderStroke(1.dp, ObsidianBorder),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = person.name,
-                            color = TextPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                        Surface(
-                            color = EmeraldPrimary.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(1.dp, EmeraldPrimary.copy(alpha = 0.5f))
-                        ) {
-                            Text(
-                                text = person.relation.ifBlank { "Friend" },
-                                color = EmeraldPrimary,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                ) {
+                    Text(
+                        text = person.name,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Spacer(Modifier.height(2.dp))
                     val dateAndAge = buildString {
                         append("$monthName ${person.dayOfMonth}")
@@ -2610,47 +2734,65 @@ fun BirthdayCard(
                     Text(
                         text = dateAndAge,
                         color = TextMuted,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-                Surface(
-                    color = badgeColor.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, badgeColor)
-                ) {
-                    Text(
-                        text = badgeText,
-                        color = badgeColor,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Outlined.DeleteOutline,
-                        contentDescription = "Delete Birthday",
-                        tint = RoseAlert
-                    )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        color = badgeColor.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.7f))
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.DeleteOutline,
+                            contentDescription = "Delete Birthday",
+                            tint = RoseAlert,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
+
             Spacer(Modifier.height(10.dp))
+
             Button(
                 onClick = onWishClick,
                 colors = ButtonDefaults.buttonColors(containerColor = badgeColor),
                 shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth()
+                contentPadding = PaddingValues(vertical = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
             ) {
-                Icon(Icons.Default.Send, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Send, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(actionLabel, color = ObsidianBg, fontWeight = FontWeight.Bold)
+                Text(actionLabel, color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
     }
 }
 
 // =========================================================================
-// TAB 4: PLANNED SCREEN
+// TAB 4: PLANNED SCREEN (Short Date Pill so Input Never Truncates!)
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2668,6 +2810,11 @@ fun PlannedScreen(
     var title by remember { mutableStateOf("") }
     var selectedDate by remember { mutableStateOf(todayStr) }
     var showDatePicker by remember { mutableStateOf(false) }
+
+    val parsedSelected = runCatching { LocalDate.parse(selectedDate) }.getOrNull()
+    val shortDateLabel = if (parsedSelected != null) {
+        "${parsedSelected.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${parsedSelected.dayOfMonth}"
+    } else selectedDate
 
     val plannedTasks = state.tasks.filter { !it.dueDate.isNullOrBlank() }
     val overdue = plannedTasks.filter { !it.isCompleted && it.dueDate!! < todayStr }
@@ -2723,10 +2870,22 @@ fun PlannedScreen(
                     },
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = { showDatePicker = true }) {
-                    Icon(Icons.Default.Event, contentDescription = null, tint = AmberStreak, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(selectedDate, color = AmberStreak, fontSize = 12.sp, maxLines = 1, softWrap = false)
+                Surface(
+                    color = ObsidianNav,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, AmberStreak.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp)
+                        .clickable { showDatePicker = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Event, contentDescription = null, tint = AmberStreak, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(shortDateLabel, color = AmberStreak, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
                 FilledIconButton(
                     onClick = {
@@ -2836,7 +2995,7 @@ fun PlannedScreen(
 }
 
 // =========================================================================
-// FULL-SCREEN SUB-PAGES (Important, All Tasks & Habits, Custom Categories)
+// FULL-SCREEN SUB-PAGES
 // =========================================================================
 @Composable
 fun FilteredListSectionScreen(
@@ -3020,7 +3179,7 @@ fun FilteredListSectionScreen(
 }
 
 // =========================================================================
-// REDESIGNED ADD BIRTHDAY DIALOG (Visible Boxes, Relation, Birth Year, Alerts)
+// REDESIGNED COMPACT ADD BIRTHDAY POPUP (2x4 Grid, Zero Empty Gaps!)
 // =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -3037,13 +3196,14 @@ fun AddBirthdayDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showCalendarPicker by remember { mutableStateOf(false) }
 
-    val relations = listOf("Friend", "Best Friend", "Brother", "Sister", "Mother", "Father", "Partner", "Cousin")
+    val relationsRow1 = listOf("Friend", "Best Friend", "Brother", "Sister")
+    val relationsRow2 = listOf("Mother", "Father", "Partner", "Cousin")
 
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedContainerColor = ObsidianBg,
         unfocusedContainerColor = ObsidianBg,
         focusedBorderColor = EmeraldPrimary,
-        unfocusedBorderColor = EmeraldPrimary.copy(alpha = 0.55f),
+        unfocusedBorderColor = ObsidianBorder,
         focusedLabelColor = EmeraldPrimary,
         unfocusedLabelColor = TextMuted,
         focusedTextColor = TextPrimary,
@@ -3055,12 +3215,30 @@ fun AddBirthdayDialog(
         onDismissRequest = onDismiss,
         containerColor = ObsidianCard,
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Cake, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text("Add Birthday Reminder", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text("Schedules 1-day-before & 12:00 Midnight alerts", color = TextMuted, fontSize = 11.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Cake, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add Birthday", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                }
+                Surface(
+                    color = AmberStreak.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, AmberStreak.copy(alpha = 0.5f)),
+                    modifier = Modifier.clickable { showCalendarPicker = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = AmberStreak, modifier = Modifier.size(13.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Calendar", color = AmberStreak, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         },
@@ -3069,90 +3247,91 @@ fun AddBirthdayDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // High-Visibility Validation Error Banner
                 if (errorMessage != null) {
                     Surface(
                         color = RoseAlert.copy(alpha = 0.16f),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(8.dp),
                         border = BorderStroke(1.dp, RoseAlert),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.padding(10.dp),
+                            modifier = Modifier.padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = RoseAlert, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(errorMessage!!, color = RoseAlert, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = RoseAlert, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(errorMessage!!, color = RoseAlert, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
                     }
                 }
 
-                // 1. CLEARLY VISIBLE PERSON'S NAME INPUT BOX
-                Text("1. Person's Name *", color = EmeraldPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                // 1. Compact Person's Name Field
                 OutlinedTextField(
                     value = name,
                     onValueChange = {
                         name = it
                         errorMessage = null
                     },
-                    placeholder = { Text("Enter name (e.g. Rahul, Priya)...", color = TextMuted, fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = EmeraldPrimary) },
+                    label = { Text("Person's Name *", fontSize = 12.sp) },
+                    placeholder = { Text("e.g. Chitrarth, Vignesh", color = TextMuted, fontSize = 12.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
                     colors = fieldColors,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // 2. RELATION SELECTOR CHIPS
-                Text("2. Relation (for custom birthday wishes) *", color = EmeraldPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    relations.forEach { rel ->
-                        val selected = relation == rel
-                        Surface(
-                            color = if (selected) EmeraldPrimary else ObsidianBg,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, if (selected) EmeraldPrimary else ObsidianBorder),
-                            modifier = Modifier.clickable { relation = rel }
+                // 2. Clean 2-Row Grid of Relations (Hidden on Card, Used for Custom Wishes)
+                Text(
+                    "Relation (kept private • used for wish style)",
+                    color = TextMuted,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(relationsRow1, relationsRow2).forEach { rowList ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text(
-                                text = rel,
-                                color = if (selected) ObsidianBg else TextPrimary,
-                                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                            )
+                            rowList.forEach { rel ->
+                                val selected = relation == rel
+                                Surface(
+                                    color = if (selected) EmeraldPrimary else ObsidianBg,
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, if (selected) EmeraldPrimary else ObsidianBorder),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { relation = rel }
+                                ) {
+                                    Text(
+                                        text = rel,
+                                        color = if (selected) ObsidianBg else TextPrimary,
+                                        fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
+                                        fontSize = 10.sp,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(vertical = 7.dp, horizontal = 2.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                // 3. DATE OF BIRTH (DAY, MONTH, YEAR + CALENDAR PICKER)
+                // 3. Date & Year of Birth (3 Equal Boxes)
+                Text(
+                    "Date & Year of Birth *",
+                    color = TextMuted,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("3. Date & Year of Birth *", color = EmeraldPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    TextButton(
-                        onClick = { showCalendarPicker = true },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                    ) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = AmberStreak, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Pick from Calendar", color = AmberStreak, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     OutlinedTextField(
                         value = dayStr,
@@ -3161,7 +3340,7 @@ fun AddBirthdayDialog(
                             errorMessage = null
                         },
                         label = { Text("Day", fontSize = 11.sp) },
-                        placeholder = { Text("DD", color = TextMuted) },
+                        placeholder = { Text("DD", color = TextMuted, fontSize = 11.sp) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp),
@@ -3175,7 +3354,7 @@ fun AddBirthdayDialog(
                             errorMessage = null
                         },
                         label = { Text("Month", fontSize = 11.sp) },
-                        placeholder = { Text("MM", color = TextMuted) },
+                        placeholder = { Text("MM", color = TextMuted, fontSize = 11.sp) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp),
@@ -3189,22 +3368,21 @@ fun AddBirthdayDialog(
                             errorMessage = null
                         },
                         label = { Text("Year", fontSize = 11.sp) },
-                        placeholder = { Text("YYYY", color = TextMuted) },
+                        placeholder = { Text("YYYY", color = TextMuted, fontSize = 11.sp) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp),
                         colors = fieldColors,
-                        modifier = Modifier.weight(1.3f)
+                        modifier = Modifier.weight(1.2f)
                     )
                 }
 
-                // 4. WHATSAPP NUMBER (OPTIONAL)
-                Text("4. WhatsApp Number (Optional)", color = TextMuted, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                // 4. WhatsApp Number (Clean & Fully Visible)
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { phone = it },
-                    placeholder = { Text("e.g. 919876543210", color = TextMuted, fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = TextMuted) },
+                    label = { Text("WhatsApp Phone (Optional)", fontSize = 12.sp) },
+                    placeholder = { Text("e.g. 919876543210", color = TextMuted, fontSize = 12.sp) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
@@ -3223,16 +3401,16 @@ fun AddBirthdayDialog(
 
                     when {
                         cleanName.isEmpty() -> {
-                            errorMessage = "Please enter the person's name in Box #1!"
+                            errorMessage = "Please enter the person's name!"
                         }
                         d == null || d !in 1..31 -> {
-                            errorMessage = "Please enter a valid Day (1 to 31)!"
+                            errorMessage = "Enter a valid Day (1–31)!"
                         }
                         m == null || m !in 1..12 -> {
-                            errorMessage = "Please enter a valid Month (1 to 12)!"
+                            errorMessage = "Enter a valid Month (1–12)!"
                         }
                         y !in 1900..LocalDate.now().year -> {
-                            errorMessage = "Please enter a valid Birth Year (1900–${LocalDate.now().year})!"
+                            errorMessage = "Enter a valid Birth Year (1900–${LocalDate.now().year})!"
                         }
                         else -> {
                             onSave(cleanName, relation, d, m, y, phone.trim())
@@ -3240,13 +3418,16 @@ fun AddBirthdayDialog(
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
-                shape = RoundedCornerShape(10.dp)
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Save & Schedule Midnight Alert", color = ObsidianBg, fontWeight = FontWeight.Bold)
+                Text("Save & Schedule Midnight Alert", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = TextMuted) }
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text("Cancel", color = TextMuted, fontSize = 12.sp)
+            }
         }
     )
 
@@ -3300,15 +3481,17 @@ fun BirthdayWishGeneratorDialog(
         title = {
             Column {
                 Text(
-                    text = if (isBelated) "🚨 Belated Rescue (${person.relation})" else "🎂 ${person.relation} Birthday Wish",
+                    text = if (isBelated) "🚨 Belated Birthday Rescue" else "🎂 Birthday Wish Generator",
                     color = if (isBelated) RoseAlert else EmeraldPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp
                 )
                 Text(
-                    text = "Tailored for ${person.name} • Tap Shuffle for another style",
+                    text = "Tailored for ${person.name} • Tap Shuffle to switch styles",
                     color = TextMuted,
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         },
@@ -3320,7 +3503,7 @@ fun BirthdayWishGeneratorDialog(
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = null, tint = AmberStreak, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Shuffle ${person.relation} Wish", color = AmberStreak, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("Shuffle Wish Style", color = AmberStreak, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
                 OutlinedTextField(
                     value = messageText,
@@ -3355,9 +3538,6 @@ fun BirthdayWishGeneratorDialog(
     )
 }
 
-// =========================================================================
-// FIRST-LAUNCH USER ONBOARDING POPUP (With Calendar Date Picker)
-// =========================================================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FirstLaunchUserOnboardingDialog(

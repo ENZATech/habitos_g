@@ -13,6 +13,9 @@ Lock permanent debug signing key and auto-increment versionCode. VersionCode wil
 
 
 
+
+
+
 Update/Stage 		VerionCode		VerionName		Changes
 
 Update #1		2			"1.0.1"			Increased when you fix bugs or make backward-compatible small improvements.
@@ -21,3 +24,5 @@ Update #2		3			"1.1.0"			Increased when you add new features while maintaining b
 									
 Update #3		4			"2.0.0"			Increased when you introduce breaking changes that may require users to change 
 									how they use the app. (complete UI design & new navigation.)
+
+**Rule:** When you increase a higher-level number, reset the numbers to its right to zero.

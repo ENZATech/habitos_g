@@ -62,10 +62,10 @@ data class HabitItem(
 data class BirthdayPerson(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val relation: String = "Friend", // Brother, Sister, Best Friend, Friend, Mother, Father, Partner, Cousin
+    val relation: String = "Friend", // Stored privately for custom wishes
     val dayOfMonth: Int,
     val monthValue: Int, // 1..12
-    val birthYear: Int = 2008, // Year of Birth
+    val birthYear: Int = 2008,
     val phone: String = "",
     val wishedYear: Int = 0
 ) {
@@ -246,8 +246,12 @@ object HabitOSStorage {
 }
 
 object WeekHelper {
-    fun currentWeekDays(today: LocalDate = LocalDate.now()): List<LocalDate> {
+    fun currentWeekDays(today: LocalDate = LocalDate.now()): List<LocalDate> =
+        weekDaysForOffset(0, today)
+
+    fun weekDaysForOffset(weekOffset: Int, today: LocalDate = LocalDate.now()): List<LocalDate> {
         val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            .plusWeeks(weekOffset.toLong())
         return (0..6).map { monday.plusDays(it.toLong()) }
     }
 
