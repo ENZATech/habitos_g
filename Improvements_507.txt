@@ -1,0 +1,8 @@
+There is a lot of congestion due to the "Cue" feature, so we're going to fix that.
+Any other major or minor UI flaws.
+There are a lot of places where we aren't be able to see the written text even if we try our best. Everything looks so congested, please refine every sentence that is showing in the application. In the image "habitOS_05" Watch the 'Due 2026-...' is creating a lot of congestion too, please do something about that.!
+There should be a custom birthday wish add button which gives us to add our own birthday wish and that one person receives that wish which we have added. And Now there are only two wishes which we can use, please add few more wishes atleast 5-6 various wishes.
+
+
+# Todoist
+okay this is good but i need something better. !! Forget this, and tell me do you know about "Todoist" PC app?? You know what that things provides a lot of features even beyond Microsoft's, Now go and analyze that application if you can, compare our application to that, and tell me that things we haven't even thought about till now explain them also. explore its premium features and include those also. Like it's UI is awesome, its features are impressive (eg., its 'repeat feature (every day, everyweek, everymonth, everyyear, custom...)', 'postpone feature', 'time feature', 'duration feature, specifies how much time do i need to schedule for a task', 'priority according to tasks', 'comments', 'custom reminders, task deadlines', etc etc.

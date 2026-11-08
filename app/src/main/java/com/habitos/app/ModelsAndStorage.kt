@@ -5,8 +5,10 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
+import java.util.Locale
 import java.util.UUID
 import kotlin.random.Random
 
@@ -67,8 +69,11 @@ data class BirthdayPerson(
     val monthValue: Int, // 1..12
     val birthYear: Int = 2008,
     val phone: String = "",
+    val customWish: String? = null, // Dedicated custom wish for this specific person
     val wishedYear: Int = 0
 ) {
+    fun hasCustomWish(): Boolean = !customWish.isNullOrBlank()
+
     fun isBirthdayOn(date: LocalDate): Boolean =
         date.monthValue == monthValue && date.dayOfMonth == dayOfMonth
 
@@ -109,6 +114,8 @@ data class BirthdayPerson(
 }
 
 object BirthdayWishTemplates {
+    const val TEMPLATE_COUNT = 6
+
     fun generateWish(person: BirthdayPerson, isBelated: Boolean, variantIndex: Int = 0): String {
         val rel = person.relation.ifBlank { "Friend" }
         val name = person.name
@@ -118,27 +125,51 @@ object BirthdayWishTemplates {
             val belatedList = when (rel) {
                 "Brother" -> listOf(
                     "Hey bro $name! 🚨 Happy Belated Birthday! Sorry I missed it yesterday—wishing my brother non-stop success, strength, and an awesome year ahead! 🎂🔥",
-                    "Happy Belated Birthday $name bhai! 🎉 Running a day late, but you know you're always #1. Hope you had a killer celebration! 👑✨"
+                    "Happy Belated Birthday $name bhai! 🎉 Running a day late, but you know you're always #1. Hope you had a killer celebration! 👑✨",
+                    "Belated Happy Birthday bro $name! 💪 Sorry for the late text, hope yesterday was legendary. Let's catch up and celebrate properly soon! 🚀🎂",
+                    "Yo $name! 🎂 A day late, but the brotherhood is forever! Wishing you massive wins, top health, and unstoppable energy this year! 🔥🙌",
+                    "Happy Belated Birthday to my brother $name! 🏆 Hope your special day was packed with great food, laughs, and power moves! 🎉✨",
+                    "Sorry I'm late bro $name! 🚨 Wishing you a Belated Happy Birthday filled with new milestones, happiness, and peace! 🎂👑"
                 )
                 "Sister" -> listOf(
                     "Happy Belated Birthday to the best sister ever, $name! 🚨🎂 Sorry I'm a day late—hope your day was as special and bright as you are! 💖✨",
-                    "Hey $name! 🌸 Belated Happy Birthday sis! Wishing you endless happiness, big achievements, and smiles all year round! 🎉"
+                    "Hey $name! 🌸 Belated Happy Birthday sis! Wishing you endless happiness, big achievements, and smiles all year round! 🎉",
+                    "So sorry I'm a day late, $name! 🎂💖 Happy Belated Birthday to my amazing sister—may all your biggest dreams come true this year! ✨🌟",
+                    "Belated Happy Birthday sis $name! 🥳 Hope you were spoiled with cake and gifts yesterday. Owe you a treat soon! 🍰💝",
+                    "Sending the warmest Belated Birthday wishes to my sister $name! 🌸 Stay fearless, keep shining, and have a magical year ahead! 🎉✨",
+                    "Happy Belated Birthday $name! 💫 Even a day late, I'm wishing my sister double the joy, success, and laughter this year! 🎂💖"
                 )
                 "Best Friend" -> listOf(
                     "Yo $name! 🚨 Worst best friend award goes to me for being a day late 😂 Happy Belated Birthday legend! Let's celebrate soon! 🎂🔥",
-                    "Happy Belated Birthday to my ride-or-die $name! 🎉 Sorry for the late text, hope you had an unforgettable blast yesterday! 🚀✨"
+                    "Happy Belated Birthday to my ride-or-die $name! 🎉 Sorry for the late text, hope you had an unforgettable blast yesterday! 🚀✨",
+                    "Bro $name! 💀 I'm officially late, which means the party isn't over yet! Happy Belated Birthday to my absolute best friend! 🎂🥳",
+                    "Belated Happy Birthday $name! 🏆 Sorry for the delay, hope yesterday was epic—here's to another year of crazy memories together! 🔥🙌",
+                    "Hey $name! 🚨 Better late than never! Happy Belated Birthday bestie, wishing you big wins, zero stress, and non-stop fun! 🎉✨",
+                    "Happy Belated Birthday $name! 🎂 Sorry I missed the clock yesterday, but you know I've always got your back. Let's hang out soon! 🚀💥"
                 )
                 "Mother", "Father" -> listOf(
                     "Happy Belated Birthday $name! 🙏🎂 Sorry for the delay—wishing you wonderful health, peace, and endless happiness always! ❤️✨",
-                    "Warmest Belated Birthday wishes to you, $name! 🌸 Thank you for everything you do—wishing you a healthy and blessed year ahead! 🙏"
+                    "Warmest Belated Birthday wishes to you, $name! 🌸 Thank you for everything you do—wishing you a healthy and blessed year ahead! 🙏",
+                    "Happy Belated Birthday $name! ❤️ So grateful for your love and guidance every day. May this year bring you good health and joy! 🎂✨",
+                    "Wishing you a very Happy Belated Birthday, $name! 🙏🌸 Hope your day yesterday was peaceful, joyful, and surrounded by love! ❤️",
+                    "Belated Birthday blessings to you, $name! 🎂 Thank you for always being our biggest support—wishing you a long, happy, and healthy life! 🙏✨",
+                    "Happy Belated Birthday $name! ❤️ Sorry for the late wish, sending you lots of love, respect, and warm wishes for the year ahead! 🌸🎂"
                 )
                 "Partner" -> listOf(
                     "Happy Belated Birthday my favorite person, $name! ❤️🎂 So sorry I'm a day late, let me make it up to you! Wishing you all the love in the world! ✨",
-                    "Hey $name 💖 Belated Happy Birthday! Hope yesterday was magical—here's to making amazing memories together this year! 🥂✨"
+                    "Hey $name 💖 Belated Happy Birthday! Hope yesterday was magical—here's to making amazing memories together this year! 🥂✨",
+                    "Happy Belated Birthday $name! 🌹 Even a day late, my wish for you is endless happiness, love, and every dream coming true! ❤️🎂",
+                    "So sorry for the late message, $name! 💖 Happy Belated Birthday—you deserve the absolute best today and every single day! ✨🥂",
+                    "Belated Happy Birthday to the one who makes every day brighter, $name! ❤️ Let's celebrate properly this week! 🎂💫",
+                    "Happy Belated Birthday $name! 💝 Sending you extra love today to make up for yesterday—wishing you a truly unforgettable year! 🌸✨"
                 )
                 else -> listOf(
                     "Hey $name! 🚨 Happy Belated Birthday! Sorry I'm a day late, hope you had an incredible celebration and wishing you an amazing year ahead! 🎂✨",
-                    "Belated Happy Birthday $name! 🎉 Hope your special day yesterday was packed with fun, laughter, and great memories! 🙌✨"
+                    "Belated Happy Birthday $name! 🎉 Hope your special day yesterday was packed with fun, laughter, and great memories! 🙌✨",
+                    "Happy Belated Birthday $name! 🥳 Running a day behind, but wishing you a fantastic year full of success, good health, and big wins! 🎂🔥",
+                    "Hey $name! 🎂 Sorry for the late wish—hope you had an awesome birthday yesterday and have an even better year ahead! ✨🚀",
+                    "Wishing you a very Happy Belated Birthday, $name! 🎉 May the coming year bring you exciting opportunities and non-stop happiness! 🙌🌟",
+                    "Belated Happy Birthday $name! 🍰 Hope you enjoyed your day to the fullest yesterday—cheers to a great year ahead! 🥳✨"
                 )
             }
             return belatedList[variantIndex.mod(belatedList.size)]
@@ -146,30 +177,67 @@ object BirthdayWishTemplates {
             val onTimeList = when (rel) {
                 "Brother" -> listOf(
                     "Happy Birthday bro $name!$agePart 🎂🔥 Wishing my brother a power-packed year full of big wins, good health, and unstoppable hustle! 👑🚀",
-                    "Many happy returns of the day, $name bhai! 🎉 Proud to have you as my brother—keep shining and crushing your goals! 💪✨"
+                    "Many happy returns of the day, $name bhai! 🎉 Proud to have you as my brother—keep shining and crushing your goals! 💪✨",
+                    "Happy Birthday to my brother $name!$agePart 🏆 May this year bring you massive success, strength, and legendary memories! 🎂⚡",
+                    "Yo $name bro! 🎉 Happy Birthday! Stay fearless, keep levelling up, and have an absolute blast today! 🔥👑",
+                    "Wishing the happiest birthday to my brother $name!$agePart 🙌 Always got your back—here's to a year of big achievements! 🎂🚀",
+                    "Happy Birthday $name bhai! 🥳 Hope today is filled with great food, good vibes, and everything you've been working toward! 💪✨"
                 )
                 "Sister" -> listOf(
                     "Happy Birthday to my amazing sister $name!$agePart 🎂💖 May your year be filled with joy, big dreams coming true, and endless smiles! 🌸✨",
-                    "Wishing the happiest birthday to my sister $name! 🎉 Stay awesome, keep smiling, and have the best celebration today! 👑💫"
+                    "Wishing the happiest birthday to my sister $name! 🎉 Stay awesome, keep smiling, and have the best celebration today! 👑💫",
+                    "Happy Birthday sis $name!$agePart 🌟 You bring positivity everywhere you go—wishing you a magical and successful year ahead! 🎂💖",
+                    "Many happy returns of the day to the coolest sister, $name! 🥳 May this year bring you exciting adventures and pure happiness! 🌸🎉",
+                    "Happy Birthday $name! 💝 So lucky to have a sister like you—hope your special day is packed with cake, gifts, and laughter! 🎂✨",
+                    "Wishing my wonderful sister $name a very Happy Birthday!$agePart 👑 Keep chasing your dreams and shining bright! 🌟💖"
                 )
                 "Best Friend" -> listOf(
                     "Happy Birthday to my absolute legend of a best friend, $name!$agePart 🎂🔥 Here's to another year of crazy memories and big wins together! 🚀🎉",
-                    "Yo $name! 🎂 Happy Birthday bestie! Wishing you top-tier success, good vibes, and an unforgettable party today! 🏆✨"
+                    "Yo $name! 🎂 Happy Birthday bestie! Wishing you top-tier success, good vibes, and an unforgettable party today! 🏆✨",
+                    "Happy Birthday $name!$agePart 🙌 Life would be boring without a best friend like you—keep killing it and let's celebrate soon! 🔥🥳",
+                    "Wishing a massive Happy Birthday to my ride-or-die, $name! 🎉 May this year bring you everything you've been grinding for! 🚀👑",
+                    "Happy Birthday best friend $name!$agePart 🎂 Thanks for always having my back—hope your day today is 10/10! 💯✨",
+                    "Cheers to another year of chaotic fun and big goals, $name! 🥳 Happy Birthday legend, have an epic day! 🎂🔥"
                 )
                 "Mother", "Father" -> listOf(
                     "Happy Birthday $name! 🙏🎂 Wishing you great health, peace, and boundless happiness today and always. Thank you for being my pillar of strength! ❤️✨",
-                    "Warmest Birthday wishes to you, $name! 🌸 May this year bring you wonderful health, joy, and countless blessings! 🙏🎉"
+                    "Warmest Birthday wishes to you, $name! 🌸 May this year bring you wonderful health, joy, and countless blessings! 🙏🎉",
+                    "Happy Birthday $name! ❤️ Thank you for your endless support, wisdom, and love—wishing you a truly peaceful and happy year ahead! 🎂✨",
+                    "Many happy returns of the day, $name! 🙏🌸 May you always be blessed with good health, long life, andConstant smiles! ❤️",
+                    "Wishing a very Happy Birthday to the most inspiring person in my life, $name! 🎂 Thank you for everything you do for us! 🙏✨",
+                    "Happy Birthday $name! ❤️ Hope your special day today is filled with warmth, relaxation, and all your favorite things! 🌸🎉"
                 )
                 "Partner" -> listOf(
                     "Happy Birthday to my favorite person, $name!$agePart ❤️🎂 You make every single day brighter—wishing you all the happiness and love in the world! ✨🥂",
-                    "Happy Birthday $name! 💖 So grateful to have you in my life. Hope today brings you as much joy as you bring me! 🎂🌹"
+                    "Happy Birthday $name! 💖 So grateful to have you in my life. Hope today brings you as much joy as you bring me! 🎂🌹",
+                    "Wishing the happiest birthday to someone truly special, $name!$agePart ❤️ May all your wishes come true this year! ✨💫",
+                    "Happy Birthday $name! 🥰 Here's to celebrating you today and making unforgettable memories together all year long! 🎂🥂",
+                    "To my favorite human, $name—Happy Birthday! 💖 Keep shining, keep smiling, and have the most magical day today! 🌸✨",
+                    "Happy Birthday $name!$agePart ❤️ Every moment with you is a gift—wishing you endless love, success, and happiness! 🎂🌟"
                 )
                 else -> listOf(
                     "Happy Birthday $name!$agePart 🎂🎉 Wishing you an awesome year ahead filled with great health, big wins, and happiness! ✨",
-                    "Many happy returns of the day, $name! 🥳 Hope your birthday today is packed with great vibes, laughter, and success! 🙌🎂"
+                    "Many happy returns of the day, $name! 🥳 Hope your birthday today is packed with great vibes, laughter, and success! 🙌🎂",
+                    "Happy Birthday $name!$agePart 🚀 May this new year of your life bring exciting opportunities, peace, and nonstop joy! 🎉✨",
+                    "Wishing you a fantastic Birthday, $name! 🎂 Stay awesome, keep crushing your goals, and enjoy your special day to the fullest! 🔥🙌",
+                    "Happy Birthday $name! 🌟 Hope today brings you great memories, good food, and a brilliant start to the year ahead! 🍰🥳",
+                    "Cheers to you on your birthday, $name!$agePart 🎉 Wishing you 365 days of good health, positivity, and big achievements! 🎂✨"
                 )
             }
             return onTimeList[variantIndex.mod(onTimeList.size)]
+        }
+    }
+}
+
+object DateFormatHelper {
+    fun shortDate(dateStr: String?, today: LocalDate = LocalDate.now()): String {
+        if (dateStr.isNullOrBlank()) return ""
+        val parsed = runCatching { LocalDate.parse(dateStr) }.getOrNull() ?: return dateStr
+        return when (parsed) {
+            today -> "Today"
+            today.plusDays(1) -> "Tomorrow"
+            today.minusDays(1) -> "Yesterday"
+            else -> "${parsed.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${parsed.dayOfMonth}"
         }
     }
 }

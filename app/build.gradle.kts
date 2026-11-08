@@ -4,7 +4,8 @@ plugins {
 }
 
 val major = 5
-val minor = 0
+val minor = 1
+val patch = 0
 // Automatically increments with every GitHub Actions build (e.g. Build 5 -> versionCode 5)
 val buildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
 
