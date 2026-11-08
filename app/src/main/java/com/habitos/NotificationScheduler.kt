@@ -11,12 +11,16 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 
 object NotificationScheduler {
     const val CHANNEL_ID = "habitos_alerts_channel"
     const val ACTION_EOD_CHECK = "com.habitos.app.ACTION_EOD_CHECK"
     const val ACTION_BDAY_ALERT = "com.habitos.app.ACTION_BDAY_ALERT"
+    const val ACTION_TASK_REMINDER = "com.habitos.app.ACTION_TASK_REMINDER"
+    const val ACTION_COMPLETE_TASK_FROM_NOTIF = "com.habitos.app.ACTION_COMPLETE_TASK_FROM_NOTIF"
+    const val ACTION_SNOOZE_TASK_FROM_NOTIF = "com.habitos.app.ACTION_SNOOZE_TASK_FROM_NOTIF"
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -25,7 +29,7 @@ object NotificationScheduler {
                 "habitOS Reminders & Birthdays",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "EOD habit/task alerts and Midnight/Day-before birthday reminders"
+                description = "Task reminders, EOD habit/task alerts, and Midnight/Day-before birthday reminders"
             }
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
@@ -36,6 +40,7 @@ object NotificationScheduler {
         ensureChannel(context)
         scheduleDailyEodAlarm(context, state.settings.eodHour, state.settings.eodMinute)
         scheduleBirthdayAlarms(context, state.birthdays)
+        scheduleTaskReminders(context, state.tasks)
     }
 
     fun scheduleDailyEodAlarm(context: Context, hour: Int, minute: Int) {
@@ -104,6 +109,61 @@ object NotificationScheduler {
                 beforePi
             )
         }
+    }
+
+    fun scheduleTaskReminders(context: Context, tasks: List<TaskItem>) {
+        val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val now = LocalDateTime.now()
+
+        tasks.forEach { task ->
+            val reqCode = (task.id.hashCode() and 0xFFFFFFF) + 500
+            val intent = Intent(context, HabitOSAlarmReceiver::class.java).apply {
+                action = ACTION_TASK_REMINDER
+                putExtra("task_id", task.id)
+                putExtra("task_title", task.title)
+                putExtra("task_prio", task.priority.shortLabel)
+            }
+            val pi = PendingIntent.getBroadcast(
+                context,
+                reqCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            if (task.isCompleted || task.dueDate.isNullOrBlank() || task.dueTime.isNullOrBlank() || task.reminderOffsetMinutes == null) {
+                am.cancel(pi)
+                return@forEach
+            }
+
+            val parsedDate = runCatching { LocalDate.parse(task.dueDate) }.getOrNull() ?: return@forEach
+            val parsedTime = runCatching { LocalTime.parse(task.dueTime) }.getOrNull() ?: return@forEach
+            val triggerDateTime = LocalDateTime.of(parsedDate, parsedTime)
+                .minusMinutes(task.reminderOffsetMinutes.toLong())
+
+            if (triggerDateTime.isAfter(now)) {
+                val triggerMillis = triggerDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                setSafeExactAlarm(am, triggerMillis, pi)
+            }
+        }
+    }
+
+    fun scheduleSnoozeAlarm(context: Context, taskId: String, taskTitle: String, taskPrio: String, snoozeMinutes: Int = 15) {
+        val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val reqCode = (taskId.hashCode() and 0xFFFFFFF) + 500
+        val intent = Intent(context, HabitOSAlarmReceiver::class.java).apply {
+            action = ACTION_TASK_REMINDER
+            putExtra("task_id", taskId)
+            putExtra("task_title", taskTitle)
+            putExtra("task_prio", taskPrio)
+        }
+        val pi = PendingIntent.getBroadcast(
+            context,
+            reqCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val triggerMillis = System.currentTimeMillis() + snoozeMinutes * 60_000L
+        setSafeExactAlarm(am, triggerMillis, pi)
     }
 
     private fun nextOccurrenceDateTime(
@@ -183,7 +243,6 @@ class HabitOSAlarmReceiver : BroadcastReceiver() {
 
                     nm.notify(9001, notification)
                 }
-                // Reschedule for tomorrow
                 NotificationScheduler.scheduleDailyEodAlarm(
                     context,
                     state.settings.eodHour,
@@ -212,6 +271,88 @@ class HabitOSAlarmReceiver : BroadcastReceiver() {
 
                 nm.notify(name.hashCode(), notification)
                 NotificationScheduler.scheduleBirthdayAlarms(context, state.birthdays)
+            }
+
+            NotificationScheduler.ACTION_TASK_REMINDER -> {
+                val taskId = intent.getStringExtra("task_id") ?: return
+                val taskTitle = intent.getStringExtra("task_title") ?: "Scheduled Task"
+                val taskPrio = intent.getStringExtra("task_prio") ?: "P4"
+                val notifId = (taskId.hashCode() and 0xFFFFFFF) + 500
+
+                val completeIntent = Intent(context, HabitOSAlarmReceiver::class.java).apply {
+                    action = NotificationScheduler.ACTION_COMPLETE_TASK_FROM_NOTIF
+                    putExtra("task_id", taskId)
+                    putExtra("notif_id", notifId)
+                }
+                val completePi = PendingIntent.getBroadcast(
+                    context,
+                    notifId + 1,
+                    completeIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                val snoozeIntent = Intent(context, HabitOSAlarmReceiver::class.java).apply {
+                    action = NotificationScheduler.ACTION_SNOOZE_TASK_FROM_NOTIF
+                    putExtra("task_id", taskId)
+                    putExtra("task_title", taskTitle)
+                    putExtra("task_prio", taskPrio)
+                    putExtra("notif_id", notifId)
+                }
+                val snoozePi = PendingIntent.getBroadcast(
+                    context,
+                    notifId + 2,
+                    snoozeIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                val notification = NotificationCompat.Builder(context, NotificationScheduler.CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                    .setContentTitle("⏰ Task Reminder • [$taskPrio]")
+                    .setContentText(taskTitle)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setContentIntent(contentPi)
+                    .addAction(android.R.drawable.checkbox_on_background, "✓ Complete", completePi)
+                    .addAction(android.R.drawable.ic_lock_idle_alarm, "💤 Snooze 15m", snoozePi)
+                    .setAutoCancel(true)
+                    .build()
+
+                nm.notify(notifId, notification)
+            }
+
+            NotificationScheduler.ACTION_COMPLETE_TASK_FROM_NOTIF -> {
+                val taskId = intent.getStringExtra("task_id") ?: return
+                val notifId = intent.getIntExtra("notif_id", (taskId.hashCode() and 0xFFFFFFF) + 500)
+                val today = LocalDate.now()
+                val todayStr = today.toString()
+
+                val updatedTasks = state.tasks.map { task ->
+                    if (task.id != taskId) task
+                    else if (task.recurrence != RecurrenceType.NONE) {
+                        val nextDate = RecurrenceEngine.calculateNextDueDate(task, today) ?: today.plusDays(1).toString()
+                        task.copy(
+                            dueDate = nextDate,
+                            isMyDay = nextDate == todayStr,
+                            myDayDate = if (nextDate == todayStr) todayStr else "",
+                            steps = task.steps.map { it.copy(isDone = false) },
+                            isCompleted = false
+                        )
+                    } else {
+                        task.copy(isCompleted = true)
+                    }
+                }
+                val nextState = state.copy(tasks = updatedTasks)
+                HabitOSStorage.save(context, nextState)
+                NotificationScheduler.scheduleAllAlarms(context, nextState)
+                nm.cancel(notifId)
+            }
+
+            NotificationScheduler.ACTION_SNOOZE_TASK_FROM_NOTIF -> {
+                val taskId = intent.getStringExtra("task_id") ?: return
+                val taskTitle = intent.getStringExtra("task_title") ?: "Scheduled Task"
+                val taskPrio = intent.getStringExtra("task_prio") ?: "P4"
+                val notifId = intent.getIntExtra("notif_id", (taskId.hashCode() and 0xFFFFFFF) + 500)
+                nm.cancel(notifId)
+                NotificationScheduler.scheduleSnoozeAlarm(context, taskId, taskTitle, taskPrio, 15)
             }
         }
     }

@@ -4,7 +4,11 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
@@ -12,33 +16,244 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.random.Random
 
+enum class Priority(val label: String, val shortLabel: String, val colorHex: Long) {
+    P1("P1 Urgent", "P1", 0xFFDC2626),   // Crimson
+    P2("P2 High", "P2", 0xFFEA580C),     // Orange
+    P3("P3 Medium", "P3", 0xFF2563EB),   // Blue
+    P4("P4 Normal", "P4", 0xFF78716C)    // Stone
+}
+
+enum class RecurrenceType(val label: String) {
+    NONE("Does not repeat"),
+    DAILY("Every day"),
+    WEEKDAYS("Every weekday (Mon-Fri)"),
+    WEEKLY("Every week"),
+    MONTHLY("Every month"),
+    YEARLY("Every year"),
+    AFTER_COMPLETION("Every X days after completion")
+}
+
+enum class TaskSortOption(val label: String) {
+    PRIORITY("Priority"),
+    DUE_TIME("Due Time"),
+    DURATION("Duration"),
+    TITLE("Title (A-Z)")
+}
+
+enum class ReminderOffset(val minutes: Int?, val label: String) {
+    NONE(null, "No reminder"),
+    AT_TIME(0, "At due time"),
+    MIN_15(15, "15m before"),
+    MIN_30(30, "30m before"),
+    HOUR_1(60, "1h before"),
+    DAY_1(1440, "1 day before");
+
+    companion object {
+        fun fromMinutes(min: Int?): ReminderOffset =
+            entries.find { it.minutes == min } ?: NONE
+    }
+}
+
 data class SubTask(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val isDone: Boolean = false
 )
 
+data class TaskComment(
+    val id: String = UUID.randomUUID().toString(),
+    val text: String,
+    val createdAtMillis: Long = System.currentTimeMillis()
+)
+
 data class TaskItem(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val isCompleted: Boolean = false,
+    val priority: Priority = Priority.P4,
     val isImportant: Boolean = false,
     val isMyDay: Boolean = false,
-    val myDayDate: String = "", // YYYY-MM-DD when added to My Day
-    val dueDate: String? = null, // YYYY-MM-DD
+    val myDayDate: String = "",
+    val dueDate: String? = null,
+    val dueTime: String? = null, // "HH:mm"
+    val durationMinutes: Int? = null,
+    val deadlineDate: String? = null, // "YYYY-MM-DD"
+    val recurrence: RecurrenceType = RecurrenceType.NONE,
+    val customRecurrenceDays: Int = 1,
+    val reminderOffsetMinutes: Int? = null,
     val listId: String? = null,
-    val cue: String = "", // e.g. "30m"
+    val cue: String = "",
     val steps: List<SubTask> = emptyList(),
+    val comments: List<TaskComment> = emptyList(),
+    val labels: List<String> = emptyList(),
     val notes: String = "",
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+    @Suppress("SENSELESS_COMPARISON")
+    fun sanitized(): TaskItem = copy(
+        priority = if (priority == null) Priority.P4 else priority,
+        recurrence = if (recurrence == null) RecurrenceType.NONE else recurrence,
+        customRecurrenceDays = if (customRecurrenceDays <= 0) 1 else customRecurrenceDays,
+        myDayDate = myDayDate ?: "",
+        cue = cue ?: "",
+        steps = steps ?: emptyList(),
+        comments = comments ?: emptyList(),
+        labels = labels ?: emptyList(),
+        notes = notes ?: ""
+    )
+}
+
+object RecurrenceEngine {
+    fun calculateNextDueDate(task: TaskItem, today: LocalDate = LocalDate.now()): String? {
+        val baseDate = runCatching {
+            if (!task.dueDate.isNullOrBlank()) LocalDate.parse(task.dueDate) else today
+        }.getOrDefault(today)
+
+        val effectiveBase = if (baseDate.isBefore(today)) today else baseDate
+
+        val nextDate = when (task.recurrence) {
+            RecurrenceType.NONE -> return null
+            RecurrenceType.DAILY -> effectiveBase.plusDays(1)
+            RecurrenceType.WEEKDAYS -> {
+                var cursor = effectiveBase.plusDays(1)
+                while (cursor.dayOfWeek == DayOfWeek.SATURDAY || cursor.dayOfWeek == DayOfWeek.SUNDAY) {
+                    cursor = cursor.plusDays(1)
+                }
+                cursor
+            }
+            RecurrenceType.WEEKLY -> effectiveBase.plusWeeks(1)
+            RecurrenceType.MONTHLY -> effectiveBase.plusMonths(1)
+            RecurrenceType.YEARLY -> effectiveBase.plusYears(1)
+            RecurrenceType.AFTER_COMPLETION -> today.plusDays(task.customRecurrenceDays.toLong().coerceAtLeast(1L))
+        }
+        return nextDate.toString()
+    }
+}
+
+object SmartTaskParser {
+    data class ParsedTaskResult(
+        val cleanTitle: String,
+        val priority: Priority?,
+        val dueDate: String?,
+        val dueTime: String?,
+        val durationMinutes: Int?,
+        val recurrence: RecurrenceType?,
+        val labels: List<String>
+    )
+
+    fun parse(rawInput: String, today: LocalDate = LocalDate.now()): ParsedTaskResult {
+        var text = rawInput
+        var priority: Priority? = null
+        var dueDate: String? = null
+        var dueTime: String? = null
+        var durationMinutes: Int? = null
+        var recurrence: RecurrenceType? = null
+        val extractedLabels = mutableListOf<String>()
+
+        // 1. Priority tokens: p1, p2, p3, p4
+        val pRegex = Regex("\\b(p[1-4])\\b", RegexOption.IGNORE_CASE)
+        val pMatch = pRegex.find(text)
+        if (pMatch != null) {
+            priority = when (pMatch.groupValues[1].lowercase(Locale.getDefault())) {
+                "p1" -> Priority.P1
+                "p2" -> Priority.P2
+                "p3" -> Priority.P3
+                else -> Priority.P4
+            }
+            text = text.replaceFirst(pRegex, "")
+        }
+
+        // 2. Duration tokens: "for 30m", "45m", "1h", "2h"
+        val durRegex = Regex("\\b(?:for\\s+)?(\\d+)\\s*(m|min|mins|h|hr|hrs)\\b", RegexOption.IGNORE_CASE)
+        val durMatch = durRegex.find(text)
+        if (durMatch != null) {
+            val amount = durMatch.groupValues[1].toIntOrNull() ?: 30
+            val unit = durMatch.groupValues[2].lowercase(Locale.getDefault())
+            durationMinutes = if (unit.startsWith("h")) amount * 60 else amount
+            text = text.replaceFirst(durRegex, "")
+        }
+
+        // 3. Time tokens: "at 14:30", "at 5pm", "at 9am"
+        val timeRegex = Regex("\\bat\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b", RegexOption.IGNORE_CASE)
+        val timeMatch = timeRegex.find(text)
+        if (timeMatch != null) {
+            var hour = timeMatch.groupValues[1].toIntOrNull() ?: 9
+            val minute = timeMatch.groupValues[2].toIntOrNull() ?: 0
+            val ampm = timeMatch.groupValues[3].lowercase(Locale.getDefault())
+            if (ampm == "pm" && hour < 12) hour += 12
+            if (ampm == "am" && hour == 12) hour = 0
+            if (hour in 0..23 && minute in 0..59) {
+                dueTime = String.format(Locale.getDefault(), "%02d:%02d", hour, minute)
+                text = text.replaceFirst(timeRegex, "")
+            }
+        }
+
+        // 4. Recurrence phrases
+        when {
+            Regex("\\bevery\\s+weekday\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) -> {
+                recurrence = RecurrenceType.WEEKDAYS
+                text = text.replace(Regex("\\bevery\\s+weekday\\b", RegexOption.IGNORE_CASE), "")
+            }
+            Regex("\\bevery\\s+day\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) -> {
+                recurrence = RecurrenceType.DAILY
+                text = text.replace(Regex("\\bevery\\s+day\\b", RegexOption.IGNORE_CASE), "")
+            }
+            Regex("\\bevery\\s+week\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) -> {
+                recurrence = RecurrenceType.WEEKLY
+                text = text.replace(Regex("\\bevery\\s+week\\b", RegexOption.IGNORE_CASE), "")
+            }
+            Regex("\\bevery\\s+month\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) -> {
+                recurrence = RecurrenceType.MONTHLY
+                text = text.replace(Regex("\\bevery\\s+month\\b", RegexOption.IGNORE_CASE), "")
+            }
+            Regex("\\bevery\\s+year\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) -> {
+                recurrence = RecurrenceType.YEARLY
+                text = text.replace(Regex("\\bevery\\s+year\\b", RegexOption.IGNORE_CASE), "")
+            }
+        }
+
+        // 5. Date keywords: today, tomorrow, next week
+        when {
+            Regex("\\bnext\\s+week\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) -> {
+                dueDate = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY)).toString()
+                text = text.replace(Regex("\\bnext\\s+week\\b", RegexOption.IGNORE_CASE), "")
+            }
+            Regex("\\btomorrow\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) -> {
+                dueDate = today.plusDays(1).toString()
+                text = text.replace(Regex("\\btomorrow\\b", RegexOption.IGNORE_CASE), "")
+            }
+            Regex("\\btoday\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) -> {
+                dueDate = today.toString()
+                text = text.replace(Regex("\\btoday\\b", RegexOption.IGNORE_CASE), "")
+            }
+        }
+
+        // 6. Labels: @tag
+        val labelRegex = Regex("@([a-zA-Z0-9_-]+)")
+        labelRegex.findAll(text).forEach { match ->
+            extractedLabels.add(match.groupValues[1])
+        }
+        text = text.replace(labelRegex, "")
+
+        val cleaned = text.replace(Regex("\\s+"), " ").trim()
+        return ParsedTaskResult(
+            cleanTitle = cleaned.ifBlank { rawInput.trim() },
+            priority = priority,
+            dueDate = dueDate,
+            dueTime = dueTime,
+            durationMinutes = durationMinutes,
+            recurrence = recurrence,
+            labels = extractedLabels.distinct()
+        )
+    }
+}
 
 data class HabitItem(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val listId: String? = null,
     val cue: String = "",
-    val completedDates: Set<String> = emptySet(), // Set of YYYY-MM-DD
+    val completedDates: Set<String> = emptySet(),
     val recordStreak: Int = 0,
     val createdAt: Long = System.currentTimeMillis()
 ) {
@@ -56,20 +271,19 @@ data class HabitItem(
         val nextSet = completedDates.toMutableSet()
         if (nextSet.contains(dateStr)) nextSet.remove(dateStr) else nextSet.add(dateStr)
         val temp = copy(completedDates = nextSet)
-        val cur = temp.currentStreak()
-        return temp.copy(recordStreak = maxOf(recordStreak, cur))
+        return temp.copy(recordStreak = maxOf(recordStreak, temp.currentStreak()))
     }
 }
 
 data class BirthdayPerson(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val relation: String = "Friend", // Stored privately for custom wishes
+    val relation: String = "Friend",
     val dayOfMonth: Int,
-    val monthValue: Int, // 1..12
+    val monthValue: Int,
     val birthYear: Int = 2008,
     val phone: String = "",
-    val customWish: String? = null, // Dedicated custom wish for this specific person
+    val customWish: String? = null,
     val wishedYear: Int = 0
 ) {
     fun hasCustomWish(): Boolean = !customWish.isNullOrBlank()
@@ -81,14 +295,14 @@ data class BirthdayPerson(
         var next = LocalDate.of(
             today.year,
             monthValue,
-            dayOfMonth.coerceAtMost(safeDayOfMonth(today.year, monthValue, dayOfMonth))
+            dayOfMonth.coerceAtMost(safeDay(today.year, monthValue, dayOfMonth))
         )
         if (next.isBefore(today)) {
             val nextYear = today.year + 1
             next = LocalDate.of(
                 nextYear,
                 monthValue,
-                dayOfMonth.coerceAtMost(safeDayOfMonth(nextYear, monthValue, dayOfMonth))
+                dayOfMonth.coerceAtMost(safeDay(nextYear, monthValue, dayOfMonth))
             )
         }
         return ChronoUnit.DAYS.between(today, next)
@@ -100,17 +314,14 @@ data class BirthdayPerson(
         val thisYearBday = LocalDate.of(
             today.year,
             monthValue,
-            dayOfMonth.coerceAtMost(safeDayOfMonth(today.year, monthValue, dayOfMonth))
+            dayOfMonth.coerceAtMost(safeDay(today.year, monthValue, dayOfMonth))
         )
-        if (thisYearBday.isBefore(today.minusDays(1))) {
-            nextYear += 1
-        }
+        if (thisYearBday.isBefore(today.minusDays(1))) nextYear += 1
         return (nextYear - birthYear).coerceAtLeast(0)
     }
 
-    private fun safeDayOfMonth(year: Int, month: Int, day: Int): Int {
-        return if (month == 2 && day == 29 && !java.time.Year.isLeap(year.toLong())) 28 else day
-    }
+    private fun safeDay(year: Int, month: Int, day: Int): Int =
+        if (month == 2 && day == 29 && !java.time.Year.isLeap(year.toLong())) 28 else day
 }
 
 object BirthdayWishTemplates {
@@ -203,7 +414,7 @@ object BirthdayWishTemplates {
                     "Happy Birthday $name! 🙏🎂 Wishing you great health, peace, and boundless happiness today and always. Thank you for being my pillar of strength! ❤️✨",
                     "Warmest Birthday wishes to you, $name! 🌸 May this year bring you wonderful health, joy, and countless blessings! 🙏🎉",
                     "Happy Birthday $name! ❤️ Thank you for your endless support, wisdom, and love—wishing you a truly peaceful and happy year ahead! 🎂✨",
-                    "Many happy returns of the day, $name! 🙏🌸 May you always be blessed with good health, long life, andConstant smiles! ❤️",
+                    "Many happy returns of the day, $name! 🙏🌸 May you always be blessed with good health, long life, and constant smiles! ❤️",
                     "Wishing a very Happy Birthday to the most inspiring person in my life, $name! 🎂 Thank you for everything you do for us! 🙏✨",
                     "Happy Birthday $name! ❤️ Hope your special day today is filled with warmth, relaxation, and all your favorite things! 🌸🎉"
                 )
@@ -230,6 +441,8 @@ object BirthdayWishTemplates {
 }
 
 object DateFormatHelper {
+    private val commentFormatter = DateTimeFormatter.ofPattern("MMM d, HH:mm", Locale.getDefault())
+
     fun shortDate(dateStr: String?, today: LocalDate = LocalDate.now()): String {
         if (dateStr.isNullOrBlank()) return ""
         val parsed = runCatching { LocalDate.parse(dateStr) }.getOrNull() ?: return dateStr
@@ -239,6 +452,53 @@ object DateFormatHelper {
             today.minusDays(1) -> "Yesterday"
             else -> "${parsed.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${parsed.dayOfMonth}"
         }
+    }
+
+    fun formatTimeBlock(dueTime: String?, durationMinutes: Int?): String? {
+        val hasTime = !dueTime.isNullOrBlank()
+        val hasDur = durationMinutes != null && durationMinutes > 0
+        if (!hasTime && !hasDur) return null
+
+        val durLabel = if (hasDur) formatWorkload(durationMinutes!!) else ""
+        if (hasTime && hasDur) {
+            val start = runCatching { LocalTime.parse(dueTime) }.getOrNull()
+            if (start != null) {
+                val end = start.plusMinutes(durationMinutes!!.toLong())
+                val endStr = String.format(Locale.getDefault(), "%02d:%02d", end.hour, end.minute)
+                return "🕒 $dueTime – $endStr ($durLabel)"
+            }
+            return "🕒 $dueTime ($durLabel)"
+        }
+        return if (hasTime) "🕒 $dueTime" else "⏱️ $durLabel"
+    }
+
+    fun formatWorkload(totalMinutes: Int): String {
+        if (totalMinutes <= 0) return "0m"
+        val h = totalMinutes / 60
+        val m = totalMinutes % 60
+        return when {
+            h > 0 && m > 0 -> "${h}h ${m}m"
+            h > 0 -> "${h}h"
+            else -> "${m}m"
+        }
+    }
+
+    fun deadlineBadgeInfo(deadlineStr: String?, today: LocalDate = LocalDate.now()): Pair<String, Boolean>? {
+        if (deadlineStr.isNullOrBlank()) return null
+        val parsed = runCatching { LocalDate.parse(deadlineStr) }.getOrNull() ?: return null
+        val days = ChronoUnit.DAYS.between(today, parsed)
+        return when {
+            days < 0 -> "🚨 Deadline ${-days}d ago" to true
+            days == 0L -> "🚨 Deadline Today" to true
+            days == 1L -> "🎯 Deadline Tomorrow" to true
+            else -> "🎯 ${days}d left (${shortDate(deadlineStr, today)})" to (days <= 2)
+        }
+    }
+
+    fun formatCommentTime(millis: Long): String {
+        return runCatching {
+            Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(commentFormatter)
+        }.getOrDefault("")
     }
 }
 
@@ -279,16 +539,23 @@ data class PersistedState(
 
 object HabitOSStorage {
     private const val PREF_NAME = "habitos_native_vault"
-    private const val KEY_STATE = "persisted_state_v2"
+    private const val KEY_STATE = "persisted_state_v3"
+    private const val KEY_STATE_LEGACY = "persisted_state_v2"
     private val gson = Gson()
 
     fun load(context: Context): PersistedState {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        val raw = prefs.getString(KEY_STATE, null) ?: return PersistedState()
+        val raw = prefs.getString(KEY_STATE, null)
+            ?: prefs.getString(KEY_STATE_LEGACY, null)
+            ?: return PersistedState()
         return try {
             val type = object : TypeToken<PersistedState>() {}.type
             val loaded: PersistedState? = gson.fromJson(raw, type)
-            loaded ?: PersistedState()
+            if (loaded != null) {
+                loaded.copy(tasks = (loaded.tasks ?: emptyList()).map { it.sanitized() })
+            } else {
+                PersistedState()
+            }
         } catch (e: Exception) {
             PersistedState()
         }
@@ -323,11 +590,8 @@ object WeekHelper {
         return (0..6).map { monday.plusDays(it.toLong()) }
     }
 
-    fun isPerfectDay(habits: List<HabitItem>, date: LocalDate): Boolean {
-        if (habits.isEmpty()) return false
-        val key = date.toString()
-        return habits.all { it.completedDates.contains(key) }
-    }
+    fun isPerfectDay(habits: List<HabitItem>, date: LocalDate): Boolean =
+        habits.isNotEmpty() && habits.all { it.completedDates.contains(date.toString()) }
 
     fun consistencyStreakDays(habits: List<HabitItem>, today: LocalDate = LocalDate.now()): Int {
         if (habits.isEmpty()) return 0
