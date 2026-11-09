@@ -43,7 +43,7 @@ app/src/main/java/com/habitos/app/
         └── FilteredListSectionScreen.kt # Important, All Items, and Custom Categories
  */
 
- package com.habitos.app.ui
+package com.habitos.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
