@@ -243,6 +243,7 @@ class HabitOSAlarmReceiver : BroadcastReceiver() {
 
                     nm.notify(9001, notification)
                 }
+                // Reschedule for tomorrow
                 NotificationScheduler.scheduleDailyEodAlarm(
                     context,
                     state.settings.eodHour,

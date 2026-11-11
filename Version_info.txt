@@ -7,9 +7,24 @@ v_5.0
 
 Fix My Day chip grid, true launcher logo, 4-tab nav with back arrow, and Birthday relations/year/validation
 
-v_5.0.0
+v_5.0.6
 
 Lock permanent debug signing key and auto-increment versionCode. VersionCode will change from here.
+
+v_5.1.7
+
+
+v_5.1.8
+
+
+v_5.1.9
+
+v_5.1.10
+
+
+
+v_5.2.0
+degraded UI from v_5.1.10 to v_5.1.8. Added a lot of new features so the 'minor' versionnumber have been increased here.
 
 
 

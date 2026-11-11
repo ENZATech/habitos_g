@@ -1,0 +1,95 @@
+#Previous_prompt
+
+1. **Implement `SuggestionsBottomSheet`** in `HabitOSRoot.kt`:
+   - Currently called when `showSuggestionsSheet == true`, but the composable definition is missing. Build a clean Matte Obsidian `ModalBottomSheet` showing uncompleted tasks not yet in `My Day` (including Overdue and Upcoming tasks) with a 1-tap `+ My Day` button.
+2. **Implement `ProfileEditDialog`** in `HabitOSRoot.kt`:
+   - Currently `showEditProfileDialog` is toggled from the sidebar footer, but the dialog is missing. Build an `AlertDialog` allowing the user to edit `userProfile.name`, `userProfile.dob`, `userProfile.gender`, and cycle their `avatarSeed`, persisting changes to `HabitOSStorage`.
+2. **True Task Recurrence Engine (`RecurrenceType` & `RecurrenceEngine`)**:
+   - Expand `RecurrenceType` enum to include: `NONE`, `DAILY`, `WEEKDAYS`, `WEEKLY`, `MONTHLY`, `YEARLY`, and `AFTER_COMPLETION` (repeats X days after completion).
+   - Add `customRecurrenceDays: Int? = null` to `TaskItem` for custom intervals.
+   - Build `object RecurrenceEngine` with `fun calculateNextDueDate(task: TaskItem, today: LocalDate): String?`.
+   - **Completion Logic**: When `onToggleTask` is triggered on a task with `recurrence != RecurrenceType.NONE` and `!task.isCompleted`:
+     - Do NOT permanently cross it off. Instead, advance `task.dueDate` (and `myDayDate` if applicable) to the next occurrence date, reset all `steps` (`SubTask.isDone = false`), record completion in karma/stats, and trigger a Snackbar: `"Completed! Next occurrence scheduled for [Date]"`.
+3. **Time Blocking (`dueTime`) & Duration (`durationMinutes`) UI**:
+   - Wire up `dueTime: String?` (format `"HH:mm"`) and `durationMinutes: Int?` (`15`, `30`, `45`, `60`, `90`, `120`) in `MyDayScreen` Quick-Add, `PlannedScreen`, and `TaskDetailBottomSheet` using a Material 3 `TimePicker` dialog and quick-select Duration chips.
+   - On `TaskRowCard`, if `dueTime` and `durationMinutes` are present, calculate and display the formatted time block badge: e.g., `🕒 14:00 – 14:45 (45m)`.
+   - In `MyDayScreen`'s top progress summary card, display the **Total Scheduled Workload** for today (e.g., `⏱️ 2h 45m scheduled`).
+
+---
+
+# PART 3: ADD & WIRE UP TODOIST FREE + PRO FEATURES (THE UNION)
+
+### 1. Full Recurrence Engine (`RecurrenceType` & `RecurrenceEngine`)
+- Expand `RecurrenceType` enum in `ModelsAndStorage.kt` to include:
+  - `NONE("Does not repeat")`
+  - `DAILY("Every day")`
+  - `WEEKDAYS("Every weekday (Mon-Fri)")`
+  - `WEEKLY("Every week")`
+  - `MONTHLY("Every month")`
+  - `YEARLY("Every year")`
+  - `AFTER_COMPLETION("Every X days after completion")` (add `val customRecurrenceDays: Int = 1` to `TaskItem`).
+- Create `object RecurrenceEngine`:
+  - When a user toggles a task with `recurrence != RecurrenceType.NONE` to completed (`onToggleTask`), DO NOT just mark it dead. Instead:
+    1. Calculate the next `dueDate` based on its rule (if `dueDate` was null, base it on `LocalDate.now()`).
+    2. Reset all subtasks (`steps.map { it.copy(isDone = false) }`).
+    3. Update `dueDate` to the next occurrence date (and update `myDayDate` accordingly if it's due today), keeping `isCompleted = false` so it seamlessly rolls forward, and trigger a Snackbar: `"Completed! Next occurrence scheduled for [DateFormatHelper.shortDate(nextDate)]"`.
+
+### 2. Time Blocking (`dueTime`) & Duration (`durationMinutes`) UI + Workload Counter
+- `TaskItem` already has `dueTime: String?` (format `"HH:mm"`) and `durationMinutes: Int?`.
+- Wire up UI controls in **both** the Quick-Add card (`MyDayScreen.kt` / `PlannedScreen.kt`) and `TaskDetailBottomSheet` (`TaskDetailsSheet.kt`):
+  - Add a **Time Picker chip** (`🕒 Set Time` / `14:00`) using Material 3 `TimePicker` inside an `AlertDialog`.
+  - Add **Duration Quick-Chips** (`15m`, `30m`, `45m`, `1h`, `1.5h`, `2h`, or custom minutes).
+- Update `TaskRowCard`:
+  - If `dueTime` and `durationMinutes` are both present, compute the end time and display a formatted time-block pill: e.g. `🕒 14:00 – 14:45 (45m)` in `TealSecondary`.
+  - If only `dueTime` is present, display `🕒 14:00`.
+  - If only `durationMinutes` is present, display `⏱️ 45m`.
+- In `MyDayScreen.kt` top progress dashboard:
+  - Sum `durationMinutes` of all incomplete My Day tasks and display a workload badge: e.g., `⏱️ 2h 45m scheduled today`.
+
+### 3. Todoist Pro "Do Date" (`dueDate`) vs. Hard "Deadline" (`deadlineDate`)
+- Add `val deadlineDate: String? = null` (`YYYY-MM-DD`) to `TaskItem`.
+- In `TaskDetailBottomSheet` and Quick-Add, allow setting an optional **Hard Deadline** (`🎯 Deadline`) alongside the scheduled Do-Date (`📅 Due Date`).
+- On `TaskRowCard`, if `deadlineDate != null`, display a high-contrast pill showing days remaining (e.g., `🎯 3d left` in `AmberStreak`, or `🚨 Deadline Today/Passed` in `RoseAlert`).
+
+### 4. Custom Per-Task Reminders & Notification Actions (`NotificationScheduler.kt`)
+- Add `val reminderOffsetMinutes: Int? = null` to `TaskItem` (e.g., `null` = none, `0` = At due time, `15` = 15m before, `30` = 30m before, `60` = 1h before, `1440` = 1 day before).
+- Add a Reminder selector chip (`🔔 Reminder`) in `TaskDetailBottomSheet` when `dueDate` and `dueTime` are set.
+- In `NotificationScheduler`:
+  - Schedule exact `AlarmManager` alarms (`ACTION_TASK_REMINDER`) for all incomplete tasks that have `dueDate`, `dueTime`, and `reminderOffsetMinutes != null`.
+  - Add two interactive Notification Actions in `HabitOSAlarmReceiver`:
+    1. **"✓ Complete"** (`ACTION_COMPLETE_TASK_FROM_NOTIF`): Marks the task completed (or advances recurrence) in `HabitOSStorage` and dismisses the notification.
+    2. **"💤 Snooze 15m"** (`ACTION_SNOOZE_TASK_FROM_NOTIF`): Schedules a one-off alarm 15 minutes from `System.currentTimeMillis()`.
+
+### 5. Universal Overdue Rescue & 1-Tap Postpone
+- In `MyDayScreen.kt`:
+  - Surface an **`🚨 OVERDUE`** section at the top of the task list for any incomplete task where `!dueDate.isNullOrBlank() && dueDate < todayStr`, complete with the 1-tap `PostponeChip` row (`Today`, `+1 Day`, `This Weekend`, `Next Week`) and `"Reschedule All to Today"` action so overdue tasks never hide unseen in `PlannedScreen`.
+- Also add the 1-tap `PostponeChip` bar inside `TaskDetailBottomSheet` so any task can be postponed in one tap from anywhere in the app.
+
+### 6. Multi-Labels (`@tags`), Timestamped Comments, and View Sorting/Grouping
+- **Multi-Labels**:
+  - Add `val labels: List<String> = emptyList()` to `TaskItem`.
+  - Allow adding/toggling `@labels` (e.g. `@deepwork`, `@quick`, `@offline`) in `TaskDetailBottomSheet` and render compact `@label` pills on `TaskRowCard`.
+- **Timestamped Comments Thread**:
+  - Create `data class TaskComment(val id: String = UUID.randomUUID().toString(), val text: String, val createdAtMillis: Long = System.currentTimeMillis())`.
+  - Add `val comments: List<TaskComment> = emptyList()` to `TaskItem`.
+  - Inside `TaskDetailBottomSheet` (below static `notes`), add a **"Comments & Activity Log"** section where the user can post timestamped progress updates and delete individual comments.
+- **Natural Language Quick-Add Parser**:
+  - Create a lightweight helper `SmartTaskParser.parse(rawInput: String)` used when submitting a task in `MyDayScreen` or `PlannedScreen`.
+  - Automatically extract inline tokens if typed by the user:
+    - Priority tokens: `p1`, `p2`, `p3`, `p4` (case-insensitive) -> sets `Priority`
+    - Duration tokens: `for 30m`, `45m`, `1h`, `2h` -> sets `durationMinutes`
+    - Date tokens: `today`, `tomorrow`, `next week` -> sets `dueDate`
+    - Recurrence tokens: `every day`, `every weekday`, `every week`, `every month` -> sets `RecurrenceType`
+    - Label tokens: `@word` -> adds `"word"` to `labels`
+    - Strip matched tokens cleanly from the final `title` (unless the user explicitly selected overrides in the UI dropdowns).
+- **View Grouping, Sorting & Completed Toggle**:
+  - In `MyDayScreen` and `PlannedScreen`, add a compact filter/sort bar allowing:
+    - Sort by: `Priority (P1-P4)`, `Due Time`, `Duration (Shortest first)`, `Title (A-Z)`.
+    - Toggle to **Collapse / Hide Completed Tasks** into an expandable `"✓ Completed (X)"` accordion at the bottom of the list.
+
+---
+
+# PART 4: CODE QUALITY & EXECUTION INSTRUCTIONS
+1. Maintain clean, idiomatic Kotlin and Jetpack Compose without any placeholder comments like `// TODO` or `// existing code here`. Write every file completely.
+2. Ensure all imports (`java.time.*`, `androidx.compose.*`, `android.app.*`) are present and accurate.
+3. After updating the code, run `./gradlew assembleDebug` (if terminal access is enabled) to verify there are zero compilation errors.

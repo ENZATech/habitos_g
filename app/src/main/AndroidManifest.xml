@@ -5,16 +5,20 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
-        android:label="habitOS"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@style/Theme.HabitOS">
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -23,24 +27,18 @@
 
         <receiver
             android:name=".HabitOSAlarmReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.habitos.app.ACTION_EOD_CHECK" />
-                <action android:name="com.habitos.app.ACTION_BDAY_ALERT" />
-                <action android:name="com.habitos.app.ACTION_TASK_REMINDER" />
-                <action android:name="com.habitos.app.ACTION_COMPLETE_TASK_FROM_NOTIF" />
-                <action android:name="com.habitos.app.ACTION_SNOOZE_TASK_FROM_NOTIF" />
-            </intent-filter>
-        </receiver>
+            android:enabled="true"
+            android:exported="false" />
 
         <receiver
             android:name=".BootCompletedReceiver"
+            android:enabled="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-
     </application>
+
 </manifest>

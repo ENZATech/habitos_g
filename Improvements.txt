@@ -1,2 +1,8 @@
-There is a lot of congestion due to the "Cue" feature, so we're going to fix that.
-Any other major or minor UI flaws.
+Hey Gemini, everything is working a lot better than before but there are still many issue that can be easily visible.
+1. In the "Daily Habit (matrix)" on the my day page, what is the need of "Due Date" on that, and "Mark Important".
+2. The "Task item" and the "Daily habit (matrix)" looks a little weird check that also. There is absolutely some issue.
+3. Moving to the page "Habits", "weekly completion Trend" only shows the trend of current week no more than that.
+4. Even if the day has ended I can still mark the habits which raises a serious issue of streak days manipulation.
+5. In the "Birthday's Section", please hide the "Relation to me" tag, cause it looks a little weird... like if any stranger open the app and sees the persons closest to me that would not be good. Also the UI of that page is so congested, like you can clearly see what has happened to Chitrarth and Vignesh's birthday box.
+6. Now the "Add Birthday" pop-up, this section is also very weird looking, a lot of empty spaces, so improve that and also try to improve its UI more.
+That is all for now, improve its UI a little more. Check for any flaws you can find in the screenshots or the codes and tell me. For now just discuss what are the problems then we will work on the codes.
